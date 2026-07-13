@@ -8,6 +8,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { MastersModule } from './modules/masters/masters.module';
 import { PropertyModule } from './modules/property/property.module';
+import { B2BModule } from './modules/b2b/b2b.module';
+import { B2CModule } from './modules/b2c/b2c.module';
 
 import { TenantMiddleware } from './shared/middleware/tenant.middleware';
 import { RLSMiddleware } from './shared/middleware/rls.middleware';
@@ -28,6 +30,8 @@ import { RLSMiddleware } from './shared/middleware/rls.middleware';
     TenantModule,
     MastersModule,
     PropertyModule,
+    B2BModule,
+    B2CModule,
   ],
 })
 export class AppModule implements NestModule {

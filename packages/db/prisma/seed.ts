@@ -198,7 +198,7 @@ async function main() {
   console.log('✓ Taxes seeded');
 
   // Cancellation Policy Templates
-  const cancelPolicyTemplate = await prisma.cancellationPolicyTemplate.upsert({
+  await prisma.cancellationPolicyTemplate.upsert({
     where: { code: 'STANDARD' },
     update: {},
     create: {
@@ -206,13 +206,6 @@ async function main() {
       name: 'Standard Cancellation',
       description: 'Free cancellation up to 7 days before arrival',
       isDefault: true,
-      tiers: {
-        create: [
-          { refundType: 'Full Refund', daysBeforeArrival: 7, chargeType: 'Percentage', chargeValue: 0 },
-          { refundType: 'Partial Refund', daysBeforeArrival: 3, chargeType: 'Percentage', chargeValue: 50 },
-          { refundType: 'No Refund', daysBeforeArrival: 0, chargeType: 'Percentage', chargeValue: 100 },
-        ],
-      },
     },
   });
 

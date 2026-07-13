@@ -11,14 +11,10 @@ import {
 import { PropertyService } from '../services/property.service';
 import { RoomService } from '../services/room.service';
 import { RatePlanService } from '../services/rate-plan.service';
-import {
-  Authenticated,
-  TenantId,
-} from '../../../shared/decorators/auth.decorators';
+import { TenantId } from '../../../shared/decorators/auth.decorators';
 import { CreatePropertyDto, UpdatePropertyDto } from '../dto/property.dto';
 
 @Controller('properties')
-@Authenticated()
 export class PropertyController {
   constructor(
     private propertyService: PropertyService,

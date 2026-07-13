@@ -17,7 +17,7 @@ export class RoomService {
 
     return this.prisma.room.findMany({
       where: { propertyId },
-      include: { amenities: true, photos: true },
+      include: { photos: true },
       orderBy: { type: 'asc' },
     });
   }
@@ -25,15 +25,20 @@ export class RoomService {
   async getRoomById(tenantId: string, roomId: string) {
     const room = await this.prisma.room.findUnique({
       where: { id: roomId },
-      include: {
-        property: { select: { tenantId: true } },
-        amenities: true,
-        photos: true,
-      },
+      include: { photos: true },
     });
 
-    if (!room || room.property.tenantId !== tenantId) {
+    if (!room) {
       throw new NotFoundException('Room not found');
+    }
+
+    // Verify tenant owns the property this room belongs to
+    const property = await this.prisma.property.findFirst({
+      where: { id: room.propertyId, tenantId },
+    });
+
+    if (!property) {
+      throw new NotFoundException('Room not found or access denied');
     }
 
     return room;
@@ -67,8 +72,8 @@ export class RoomService {
         smokingPolicy: dto.smokingPolicy,
         description: dto.description,
         status: dto.status || 'active',
+        amenityCodes: dto.amenityCodes || [],
       },
-      include: { amenities: true },
     });
   }
 }

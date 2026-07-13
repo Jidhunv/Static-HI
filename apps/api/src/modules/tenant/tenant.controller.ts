@@ -1,10 +1,8 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { Controller, Get } from '@nestjs/common';
 import { TenantService } from './tenant.service';
-import { TenantId, Authenticated } from '../../shared/decorators/auth.decorators';
+import { TenantId } from '../../shared/decorators/auth.decorators';
 
 @Controller('tenant')
-@Authenticated()
 export class TenantController {
   constructor(private tenantService: TenantService) {}
 

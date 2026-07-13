@@ -125,7 +125,6 @@ model GlobalHotel {
   @@unique([name, country, latitude, longitude]) /// prevent duplicates
   @@index([name, country])
   @@index([city, country])
-  @@fulltext([name, city, country]) /// MySQL/PostgreSQL full-text search
 }
 
 model Country {
@@ -206,9 +205,6 @@ model CancellationPolicyTemplate {
   description         String?
   isDefault           Boolean  @default(false)
   createdAt           DateTime @default(now())
-
-  // Relations
-  tiers               CancellationPolicyTier[]
 
   @@index([isDefault])
 }
@@ -304,9 +300,7 @@ model Property {
   rooms               Room[]
   ratePlans           RatePlan[]
   policies            CancellationPolicy[]
-  fees                ChargeRule[] @relation("property_fees")
-  surcharges          ChargeRule[] @relation("property_surcharges")
-  supplements         ChargeRule[] @relation("property_supplements")
+  chargeRules         ChargeRule[]
   documents           PropertyDocument[]
   bankDetails         PropertyBankDetail[]
   suppliers           Supplier[] @relation("property_suppliers")
@@ -407,8 +401,8 @@ model Room {
   // Policies
   smokingPolicy       String?  /// smoking, non-smoking, both
   extraBeds           String?  /// can it have extra beds? count allowed?
+  amenityCodes        String[] /// JSON array of amenity codes
 
-  amenities           Amenity[] @relation(default: []) /// M2M through RoomAmenity
   photos              RoomPhoto[]
 
   createdAt           DateTime @default(now())
@@ -468,8 +462,7 @@ model RatePlan {
 
 model CalendarRate {
   id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId          String   /// denormalized for indexing
 
   roomId              String
   room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -548,8 +541,7 @@ model CancellationPolicyTier {
 model ChargeRule {
   id                  String   @id @default(cuid())
   propertyId          String
-
-  property            Property? @relation(name: String, fields: [propertyId], references: [id], onDelete: Cascade)
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   kind                String   /// fee, surcharge, supplement
   name                String
