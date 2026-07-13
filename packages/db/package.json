@@ -1,0 +1,24 @@
+{
+  "name": "@hotel/db",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "prisma": "prisma",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.1",
+    "bcrypt": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "prisma": "^5.7.1",
+    "ts-node": "^10.9.2"
+  }
+}

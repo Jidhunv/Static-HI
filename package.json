@@ -1,0 +1,23 @@
+{
+  "name": "hotel-inventory-platform",
+  "version": "0.0.1",
+  "description": "Multi-tenant hotel inventory & distribution platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "db:push": "cd packages/db && pnpm prisma db push",
+    "db:migrate": "cd packages/db && pnpm prisma migrate dev",
+    "db:seed": "cd packages/db && pnpm prisma db seed",
+    "db:studio": "cd packages/db && pnpm prisma studio"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  }
+}

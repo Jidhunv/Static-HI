@@ -1,0 +1,891 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// TENANTS & AUTH
+// ============================================================================
+
+model Tenant {
+  id                    String   @id @default(cuid())
+  name                  String
+  slug                  String   @unique /// lowercase, used in subdomain
+  businessType          String   /// hotel_chain, dmc, ota, wholesaler, travel_agency
+  status                String   @default("pending") /// pending, active, suspended
+  primaryCurrency       String   @default("USD")
+
+  // Branding / white-label
+  logoUrl               String?
+  primaryColor          String?  @default("#7c3aed") /// default: lavender
+  secondaryColor        String?
+  fontFamily            String?  @default("inter") /// inter, roboto, poppins, etc.
+
+  // Finance & KYC
+  kycStatus             String   @default("pending") /// pending, verified, rejected
+  kycDocuments          String[] /// JSON paths to uploaded docs
+  bankAccountEncrypted  String?  /// encrypted JSON: {accountNumber, ifsc, beneficiaryName, accountType}
+  panEncrypted          String?  /// encrypted
+  gstEncrypted          String?  /// encrypted
+
+  // Defaults
+  defaultB2BMargin      Int      @default(15) /// percentage
+  defaultB2CMarkup      Int      @default(25) /// percentage
+  commissionRate        Int      @default(5)  /// platform take-rate on B2B/B2C, %
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  users                 TenantUser[]
+  properties            Property[]
+  suppliers             Supplier[]
+  rateMarkups           RateMarkup[]
+  outgoingDistributions DistributionGrant[] @relation("source_tenant")
+  incomingDistributions DistributionGrant[] @relation("target_tenant")
+  bookings              Booking[] @relation("source_tenant")
+  bookingsResold        Booking[] @relation("reseller_tenant")
+  settings              TenantSettings?
+
+  @@index([status])
+  @@index([slug])
+}
+
+model TenantSettings {
+  id                  String   @id @default(cuid())
+  tenantId            String   @unique
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Per-tenant master overrides
+  allowedAmenities    String[] /// JSON array of amenity IDs this tenant can use
+  allowedCountries    String[] /// restrict booking to certain countries
+  bookingWindow       Int      @default(365) /// max days in advance
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model TenantUser {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email               String
+  password            String   /// hashed
+  firstName           String
+  lastName            String
+  role                String   /// admin, staff
+
+  // Staff scoping
+  permissions         String[] /// module_view, module_edit, etc. — JSON array
+
+  emailVerified       Boolean  @default(false)
+  status              String   @default("active") /// active, inactive, suspended
+  lastLogin           DateTime?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+}
+
+// ============================================================================
+// PLATFORM MASTERS (not tenant-scoped)
+// ============================================================================
+
+model GlobalHotel {
+  id                  String   @id @default(cuid())
+  /// from source data import
+  name                String
+  address             String
+  city                String
+  state               String?
+  country             String
+  postalCode          String?
+  latitude            Float
+  longitude           Float
+  starRating          Int?
+  chainAffiliation    String?
+  amenitiesMaster     String[] /// JSON array of standardized amenity codes
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  properties          Property[]
+
+  @@unique([name, country, latitude, longitude]) /// prevent duplicates
+  @@index([name, country])
+  @@index([city, country])
+  @@fulltext([name, city, country]) /// MySQL/PostgreSQL full-text search
+}
+
+model Country {
+  id                  String   @id @default(cuid())
+  code                String   @unique /// ISO 3166-1 alpha-2
+  name                String   @unique
+  createdAt           DateTime @default(now())
+
+  states              State[]
+  properties          Property[] @relation("property_country")
+
+  @@index([name])
+}
+
+model State {
+  id                  String   @id @default(cuid())
+  countryId           String
+  country             Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  name                String
+  code                String?
+  createdAt           DateTime @default(now())
+
+  properties          Property[] @relation("property_state")
+
+  @@unique([countryId, name])
+  @@index([countryId])
+}
+
+model City {
+  id                  String   @id @default(cuid())
+  name                String
+  countryCode         String   /// denormalized for fast lookup
+  createdAt           DateTime @default(now())
+
+  @@unique([name, countryCode])
+  @@index([name, countryCode])
+}
+
+model Currency {
+  id                  String   @id @default(cuid())
+  code                String   @unique /// USD, EUR, INR, etc.
+  name                String
+  symbol              String
+  exchangeRate        Float    @default(1.0) /// vs USD base
+  createdAt           DateTime @default(now())
+}
+
+model Amenity {
+  id                  String   @id @default(cuid())
+  code                String   @unique /// WIFI, AC, PARKING, etc.
+  name                String
+  category            String   /// wifi, climate, parking, entertainment, etc.
+  icon                String?
+  createdAt           DateTime @default(now())
+
+  @@index([category])
+}
+
+model BedType {
+  id                  String   @id @default(cuid())
+  code                String   @unique
+  name                String   /// Single, Double, Queen, King, Twin, etc.
+  createdAt           DateTime @default(now())
+}
+
+model BoardCode {
+  id                  String   @id @default(cuid())
+  code                String   @unique /// BB, HB, FB, etc.
+  name                String   /// Bed & Breakfast, Half Board, Full Board
+  description         String?
+  createdAt           DateTime @default(now())
+}
+
+model CancellationPolicyTemplate {
+  id                  String   @id @default(cuid())
+  name                String
+  code                String   @unique
+  description         String?
+  isDefault           Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  // Relations
+  tiers               CancellationPolicyTier[]
+
+  @@index([isDefault])
+}
+
+model Tax {
+  id                  String   @id @default(cuid())
+  name                String
+  code                String   @unique /// VAT, GST, etc.
+  percentage          Float
+  isInclusive         Boolean  @default(false) /// in price or added on top
+  createdAt           DateTime @default(now())
+
+  @@index([code])
+}
+
+model Chain {
+  id                  String   @id @default(cuid())
+  name                String   @unique
+  logo                String?
+  createdAt           DateTime @default(now())
+}
+
+model LegalInformationType {
+  id                  String   @id @default(cuid())
+  name                String   @unique /// PAN Certificate, GST Certificate, etc.
+  code                String   @unique
+  createdAt           DateTime @default(now())
+}
+
+// ============================================================================
+// PROPERTY & INVENTORY
+// ============================================================================
+
+model Property {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  globalHotelId       String?
+  globalHotel         GlobalHotel? @relation(fields: [globalHotelId], references: [id])
+
+  name                String
+  code                String   /// auto-generated, unique per tenant
+  type                String   /// Hotel, Resort, Hostel, Vacation Rental, etc.
+
+  countryId           String
+  country             Country  @relation("property_country", fields: [countryId], references: [id])
+  stateId             String?
+  state               State?   @relation("property_state", fields: [stateId], references: [id])
+  city                String
+  address             String
+  postalCode          String?
+  latitude            Float
+  longitude           Float
+
+  starCategory        Int?     /// 1-5 stars
+  chainId             String?  /// FK to Chain
+  chainName           String?  /// denormalized for fast lookup
+
+  checkInTime         String   @default("14:00")
+  checkOutTime        String   @default("12:00")
+
+  status              String   @default("active") /// active, inactive, archived
+  inactiveComment     String?
+
+  // Policies
+  allowEarlyCheckIn   Boolean  @default(false)
+  allowLateCheckOut   Boolean  @default(false)
+  allowChildren       String   @default("yes") /// yes, no
+  childrenPolicy      String?  /// free child up to X, or text
+
+  // Finance
+  disableTDS          Boolean  @default(false)
+  contractedBy        String[] /// JSON array of supplier IDs or names
+
+  // Supplier flag
+  isSupplier          Boolean  @default(false) /// if true, this property can also act as a supplier to others
+  applicableForROH    Boolean  @default(false) /// Run of House
+
+  // Visibility & Distribution
+  visibility          String   @default("private") /// private, public_b2b, public_b2c, public_both
+  distributionMode    String   @default("open") /// open, permissioned — only relevant if visibility includes b2b
+
+  // Content
+  description         String?
+  usp                 String?  /// Unique Selling Proposition
+  photos              PropertyPhoto[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  rooms               Room[]
+  ratePlans           RatePlan[]
+  policies            CancellationPolicy[]
+  fees                ChargeRule[] @relation("property_fees")
+  surcharges          ChargeRule[] @relation("property_surcharges")
+  supplements         ChargeRule[] @relation("property_supplements")
+  documents           PropertyDocument[]
+  bankDetails         PropertyBankDetail[]
+  suppliers           Supplier[] @relation("property_suppliers")
+  promotions          Promotion[]
+  bookings            Booking[] @relation("property_source")
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([visibility])
+  @@index([distributionMode])
+  @@index([chainName])
+  @@index([city])
+}
+
+model PropertyPhoto {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  url                 String   /// signed S3 URL
+  label               String   /// Living Room, Bedroom, Pool, etc.
+  imageName           String?
+  isHero              Boolean  @default(false)
+
+  createdAt           DateTime @default(now())
+
+  @@index([propertyId])
+}
+
+model PropertyDocument {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  legalInformationType String
+  documentUrl         String   /// signed S3 URL
+  expiryDate          DateTime?
+  reminder1Alert      Int?     /// days before expiry
+  reminder2Alert      Int?
+  reminder3Alert      Int?
+
+  createdAt           DateTime @default(now())
+
+  @@index([propertyId])
+  @@index([expiryDate])
+}
+
+model PropertyBankDetail {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  bankName            String
+  beneficiaryName     String
+  accountNumberEnc    String   /// encrypted at rest
+  ifscCodeEnc         String?  /// encrypted
+  accountType         String   /// Savings, Current, etc.
+  chequeDocumentUrl   String?  /// signed S3 URL
+
+  verificationStatus  String   @default("unverified") /// unverified, verified, failed
+  applyToChain        Boolean  @default(false) /// user flag to apply to all chain properties
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([propertyId]) /// one primary bank detail per property
+  @@index([propertyId])
+  @@index([verificationStatus])
+}
+
+// ============================================================================
+// ROOMS & RATE INVENTORY
+// ============================================================================
+
+model Room {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  type                String   /// Standard, Deluxe, Suite, etc.
+  code                String   /// auto-generated per property
+  quantity            Int      /// total number of this room type
+
+  area                Float?
+  areaUnit            String   @default("sqm") /// sqm, sqft
+  viewType            String?  /// Sea View, Garden View, etc.
+  applicableForROH    Boolean  @default(false)
+  description         String?
+
+  status              String   @default("active")
+
+  // Occupancy rules
+  minAdults           Int      @default(1)
+  maxAdults           Int      @default(2)
+  maxOccupancy        Int      @default(2) /// including children
+  minThresholdPrice   Float?   /// minimum rate for adult occupancy
+
+  // Policies
+  smokingPolicy       String?  /// smoking, non-smoking, both
+  extraBeds           String?  /// can it have extra beds? count allowed?
+
+  amenities           Amenity[] @relation(default: []) /// M2M through RoomAmenity
+  photos              RoomPhoto[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  ratePlans           RatePlan[]
+  calendarRates       CalendarRate[]
+
+  @@unique([propertyId, code])
+  @@index([propertyId])
+  @@index([type])
+}
+
+model RoomPhoto {
+  id                  String   @id @default(cuid())
+  roomId              String
+  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  url                 String   /// signed S3 URL
+  label               String?
+
+  createdAt           DateTime @default(now())
+
+  @@index([roomId])
+}
+
+model RatePlan {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  roomId              String?
+  room                Room?    @relation(fields: [roomId], references: [id])
+
+  code                String   /// auto-generated
+  name                String
+  boardType           String   /// BB, HB, FB, or custom
+
+  status              String   @default("active")
+  comments            String?
+
+  taxInclusive        Boolean  @default(true)
+  minLengthOfStay     Int      @default(1)
+  maxLengthOfStay     Int?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  calendarRates       CalendarRate[]
+
+  @@unique([propertyId, code])
+  @@index([propertyId])
+  @@index([roomId])
+}
+
+model CalendarRate {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  roomId              String
+  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  ratePlanId          String
+  ratePlan            RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  date                DateTime /// check-in date
+  netRate             Float    /// the base, secret, never-shown rate
+
+  availability        Int      @default(999) /// rooms available this date
+  stopSell            Boolean  @default(false)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([roomId, ratePlanId, date])
+  @@index([propertyId, date])
+  @@index([date])
+}
+
+// ============================================================================
+// CANCELLATION POLICIES
+// ============================================================================
+
+model CancellationPolicy {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  bookingType         String   /// Refundable, Non-Refundable
+  status              String   @default("active")
+  templateId          String?  /// FK to CancellationPolicyTemplate if based on template
+  templateName        String?
+
+  customName          String?  /// if custom, the custom name
+  isDefault           Boolean  @default(false)
+
+  applicableStartDate DateTime?
+  applicableEndDate   DateTime?
+  applicableDateType  String?  /// by_booking_date, by_stay_date
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  tiers               CancellationPolicyTier[]
+  applicableRooms     String[] /// room type codes, JSON array
+  applicableRatePlans String[] /// rate plan codes, JSON array
+
+  @@index([propertyId])
+  @@index([isDefault])
+}
+
+model CancellationPolicyTier {
+  id                  String   @id @default(cuid())
+  policyId            String
+  policy              CancellationPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  templateTierId      String?  /// if from template, reference original
+
+  refundType          String   /// Full Refund, Partial Refund, No Refund
+  daysBeforeArrival   Int      /// cancellation window
+  arrivalTime         String?  /// optional time constraint
+  chargeType          String   /// Percentage, Fixed
+  chargeValue         Float    /// % or fixed amount
+
+  createdAt           DateTime @default(now())
+
+  @@index([policyId])
+}
+
+// ============================================================================
+// CHARGE RULES (Fees, Surcharges, Supplements)
+// ============================================================================
+
+model ChargeRule {
+  id                  String   @id @default(cuid())
+  propertyId          String
+
+  property            Property? @relation(name: String, fields: [propertyId], references: [id], onDelete: Cascade)
+
+  kind                String   /// fee, surcharge, supplement
+  name                String
+  applicability       String   @default("room") /// room, rate_plan
+
+  appliedToRoomTypes  String[] /// codes, JSON array
+  appliedToRatePlans  String[] /// codes, JSON array
+
+  amountType          String   /// flat, percentage
+  value               Float    /// amount or percentage
+
+  dateRangeStart      DateTime?
+  dateRangeEnd        DateTime?
+  mandatory           Boolean  @default(false)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([propertyId, kind])
+}
+
+// ============================================================================
+// PROMOTIONS
+// ============================================================================
+
+model Promotion {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  type                String   /// basic, long_stay, early_bird, last_minute, extra_inclusion, performance_linked
+  name                String
+  code                String   @unique
+
+  status              String   @default("active")
+  description         String?
+
+  /// Applicability & Trigger
+  roomTypes           String[] /// JSON array of room type codes
+  ratePlans           String[] /// JSON array of rate plan codes
+
+  dateStart           DateTime
+  dateEnd             DateTime
+
+  triggerCondition    String   @db.Text /// JSON: {"type": "...", ...}
+  discountType        String   /// percentage, fixed, free_nights
+  discountValue       Float
+
+  applicableToLOS     Int?     /// for long stay: min LOS to trigger
+
+  /// for extra inclusion
+  includeExtraIds     String[] /// JSON array of charge rule IDs
+
+  /// for performance linked
+  volumeThresholds    String?  /// JSON: [{nights: 10, discount: 5}, {nights: 20, discount: 10}]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  rules               PromotionRule[]
+
+  @@index([propertyId])
+  @@index([status])
+  @@index([dateStart, dateEnd])
+}
+
+model PromotionRule {
+  id                  String   @id @default(cuid())
+  promotionId         String
+  promotion           Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+
+  priority            Int      @default(0)
+  ruleJson            String   @db.Text /// serialized rule logic
+
+  @@index([promotionId, priority])
+}
+
+// ============================================================================
+// SUPPLIERS
+// ============================================================================
+
+model Supplier {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name                String
+  accountingName      String?
+  type                String   /// Source, Channel Manager, GDS, etc.
+  category            String   /// Direct Connect, API, Manual, etc.
+
+  contractFrom        DateTime?
+  contractTo          DateTime?
+  isContractSigned    Boolean  @default(false)
+
+  logoUrl             String?
+  status              String   @default("active")
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  documents           SupplierDocument[]
+  offices             SupplierOffice[]
+  properties          Property[] @relation("property_suppliers")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model SupplierDocument {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  documentName        String
+  documentUrl         String   /// signed S3 URL
+
+  createdAt           DateTime @default(now())
+
+  @@index([supplierId])
+}
+
+model SupplierOffice {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  officeName          String
+  address             String?
+  city                String?
+  country             String?
+  contactName         String?
+  phone               String?
+  email               String?
+
+  createdAt           DateTime @default(now())
+
+  @@index([supplierId])
+}
+
+// ============================================================================
+// RATE MARKUP & DISTRIBUTION
+// ============================================================================
+
+model RateMarkup {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  channel             String   /// b2b, b2c
+
+  /// Optional scoping
+  sourceTenantId      String?  /// for b2b: only when reselling this specific tenant's inventory
+  roomTypeCode        String?  /// applies to this room type
+
+  dateStart           DateTime?
+  dateEnd             DateTime?
+  minLOS              Int?
+
+  /// Markup rule
+  type                String   /// percentage, fixed
+  value               Float
+  priority            Int      @default(0) /// higher = more specific, wins in conflict
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, channel, sourceTenantId, roomTypeCode, dateStart, dateEnd, minLOS])
+  @@index([tenantId, channel])
+  @@index([priority])
+}
+
+model DistributionGrant {
+  id                  String   @id @default(cuid())
+  sourceTenantId      String
+  sourceTenant        Tenant   @relation("source_tenant", fields: [sourceTenantId], references: [id], onDelete: Cascade)
+
+  targetTenantId      String
+  targetTenant        Tenant   @relation("target_tenant", fields: [targetTenantId], references: [id], onDelete: Cascade)
+
+  status              String   @default("pending") /// pending, approved, rejected
+
+  /// Optional bilateral override
+  customB2BMargin     Int?     /// % margin override just for this grant
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([sourceTenantId, targetTenantId])
+  @@index([sourceTenantId])
+  @@index([targetTenantId])
+  @@index([status])
+}
+
+// ============================================================================
+// BOOKINGS & PAYMENTS
+// ============================================================================
+
+model Booking {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation("property_source", fields: [propertyId], references: [id])
+
+  sourceTenantId      String   /// owner of the property
+  sourceTenant        Tenant   @relation("source_tenant", fields: [sourceTenantId], references: [id])
+
+  resellerTenantId    String?  /// if B2B, the tenant that made the booking
+  resellerTenant      Tenant?  @relation("reseller_tenant", fields: [resellerTenantId], references: [id])
+
+  bookingCode         String   @unique
+  bookingType         String   @default("b2c") /// b2c, b2b
+
+  // Guest info (for B2C) or reseller customer info
+  guestEmail          String
+  guestName           String
+  guestPhone          String?
+
+  // Stay details
+  checkInDate         DateTime
+  checkOutDate        DateTime
+  roomTypeCode        String
+  ratePlanCode        String
+  adults              Int
+  children            Int      @default(0)
+
+  // Pricing
+  netRate             Float    /// per night
+  numberOfNights      Int
+  subtotal            Float    /// netRate * numberOfNights
+
+  status              String   @default("confirmed") /// pending, confirmed, cancelled
+
+  createdAt           DateTime @default(now())
+  cancelledAt         DateTime?
+
+  // Relations
+  items               BookingItem[]
+  rateBreakdown       RateBreakdown?
+  payment             Payment?
+
+  @@index([sourceTenantId])
+  @@index([resellerTenantId])
+  @@index([propertyId])
+  @@index([status])
+  @@index([checkInDate])
+}
+
+model BookingItem {
+  id                  String   @id @default(cuid())
+  bookingId           String
+  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  itemType            String   /// room, fee, surcharge, tax, discount
+  description         String
+  quantity            Int      @default(1)
+  unitPrice           Float
+  total               Float    /// quantity * unitPrice
+
+  @@index([bookingId])
+}
+
+model RateBreakdown {
+  id                  String   @id @default(cuid())
+  bookingId           String   @unique
+  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  sourceTenantId      String   /// base data for audit
+  resellerTenantId    String?
+
+  netRate             Float    /// per night, secret
+  b2bMarginApplied    Float?   /// if B2B, markup applied by source
+  marketplaceRate     Float?   /// netRate + b2bMarginApplied
+  resellerMarkup      Float?   /// reseller's own markup
+
+  b2cMarkupApplied    Float?   /// if B2C, direct markup applied
+
+  taxTotal            Float
+  feesTotal           Float
+  surchargesTotal     Float
+
+  finalRate           Float    /// the final sell rate
+
+  /// JSON audit trail
+  markupHistory       String   @db.Text /// [{applied_by: tenant_id, type: "b2b" | "b2c", value, timestamp}]
+
+  @@index([sourceTenantId])
+  @@index([resellerTenantId])
+}
+
+model Payment {
+  id                  String   @id @default(cuid())
+  bookingId           String   @unique
+  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  status              String   @default("pending") /// pending, succeeded, failed
+  method              String   @default("stripe") /// stripe, bank_transfer, etc.
+
+  stripePaymentIntentId String?
+  stripeConnectAccountId String? /// the tenant's stripe account ID
+
+  amount              Float
+  currency            String
+
+  platformCommission  Float    /// platform's take
+  tenantCredit        Float    /// amount credited to tenant
+
+  createdAt           DateTime @default(now())
+  completedAt         DateTime?
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+// ============================================================================
+// AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id                  String   @id @default(cuid())
+  tenantId            String
+
+  userId              String?
+  userEmail           String?
+
+  action              String   /// markup_rule_changed, distribution_grant_approved, bank_detail_changed, etc.
+  entityType          String   /// Markup, DistributionGrant, Property, etc.
+  entityId            String
+
+  beforeState         String?  @db.Text /// JSON
+  afterState          String?  @db.Text /// JSON
+
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
