@@ -60,6 +60,11 @@ export default function AdminDashboard() {
       { id: 'users-list', label: 'Users' },
       { id: 'roles', label: 'Roles' },
     ]},
+    { id: 'payments', label: 'Payment Setup', icon: FileText, submenu: [
+      { id: 'payment-modes', label: 'Payment Modes' },
+      { id: 'payment-gateways', label: 'Payment Gateways' },
+    ]},
+    { id: 'ledgers', label: 'Tenant Ledger', icon: BarChart3 },
     { id: 'reports', label: 'Reports', icon: BarChart3, submenu: [
       { id: 'reports-dashboard', label: 'Dashboard' },
       { id: 'detailed-reports', label: 'Detailed Reports' },
@@ -236,6 +241,13 @@ export default function AdminDashboard() {
         {/* User Management Section */}
         {activeSection === 'users-list' && <UsersList />}
         {activeSection === 'roles' && <RolesManagement />}
+
+        {/* Payment Setup Section */}
+        {activeSection === 'payment-modes' && <PaymentModes />}
+        {activeSection === 'payment-gateways' && <PaymentGateways />}
+
+        {/* Tenant Ledger Section */}
+        {activeSection === 'ledgers' && <TenantLedger tenants={tenants} />}
 
         {/* Reports Section */}
         {activeSection === 'reports-dashboard' && <ReportsDashboard tenants={tenants} />}
@@ -969,6 +981,226 @@ function MISSection({ tenants }: any) {
           <div>
             <p className="text-slate-600 dark:text-slate-400 mb-1">Platform Uptime</p>
             <p className="text-xl font-bold">99.9%</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Payment Modes Component
+function PaymentModes() {
+  const [paymentModes] = useState([
+    { id: 1, name: 'Credit', description: 'Postpaid credit facility', status: 'active', commissionRate: 2.5 },
+    { id: 2, name: 'Debit', description: 'Upfront payment', status: 'active', commissionRate: 1.0 },
+  ]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center mb-6">
+        <p className="text-slate-600 dark:text-slate-400">Configure payment modes available for tenants</p>
+        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">+ Add Payment Mode</button>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded-lg border overflow-hidden">
+        <table className="w-full">
+          <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+            <tr>
+              <th className="text-left px-6 py-3 font-medium text-sm">Payment Mode</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Description</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Commission %</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Status</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+            {paymentModes.map(mode => (
+              <tr key={mode.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                <td className="px-6 py-3 font-medium">{mode.name}</td>
+                <td className="px-6 py-3 text-slate-600 dark:text-slate-400">{mode.description}</td>
+                <td className="px-6 py-3">{mode.commissionRate}%</td>
+                <td className="px-6 py-3">
+                  <span className="inline-block px-2 py-1 text-xs font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                    {mode.status}
+                  </span>
+                </td>
+                <td className="px-6 py-3 space-x-2">
+                  <button className="text-blue-600 hover:text-blue-700 text-sm">Edit</button>
+                  <button className="text-red-600 hover:text-red-700 text-sm">Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Payment Gateways Component
+function PaymentGateways() {
+  const [gateways] = useState([
+    { id: 1, name: 'Stripe', provider: 'Stripe Inc.', status: 'active', commission: 2.9, setupFee: 0 },
+    { id: 2, name: 'PayPal', provider: 'PayPal Inc.', status: 'active', commission: 3.49, setupFee: 0 },
+    { id: 3, name: 'Razorpay', provider: 'Razorpay', status: 'active', commission: 2.0, setupFee: 0 },
+    { id: 4, name: 'Square', provider: 'Square Inc.', status: 'inactive', commission: 2.6, setupFee: 0 },
+  ]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center mb-6">
+        <p className="text-slate-600 dark:text-slate-400">Manage payment gateway integrations and configurations</p>
+        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">+ Add Gateway</button>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded-lg border overflow-hidden">
+        <table className="w-full">
+          <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+            <tr>
+              <th className="text-left px-6 py-3 font-medium text-sm">Gateway Name</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Provider</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Commission %</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Status</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+            {gateways.map(gateway => (
+              <tr key={gateway.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                <td className="px-6 py-3 font-medium">{gateway.name}</td>
+                <td className="px-6 py-3 text-slate-600 dark:text-slate-400">{gateway.provider}</td>
+                <td className="px-6 py-3">{gateway.commission}%</td>
+                <td className="px-6 py-3">
+                  <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${
+                    gateway.status === 'active'
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                  }`}>
+                    {gateway.status}
+                  </span>
+                </td>
+                <td className="px-6 py-3 space-x-2">
+                  <button className="text-blue-600 hover:text-blue-700 text-sm">Configure</button>
+                  <button className="text-purple-600 hover:text-purple-700 text-sm">Test</button>
+                  <button className="text-red-600 hover:text-red-700 text-sm">Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Tenant Ledger Component
+function TenantLedger({ tenants }: any) {
+  const [selectedTenant, setSelectedTenant] = useState(tenants.length > 0 ? tenants[0].id : null);
+  const [ledgerEntries] = useState([
+    { id: 1, date: '2026-06-15', type: 'Credit', amount: 5000, balance: 5000, reference: 'INV-001', description: 'Monthly Commission' },
+    { id: 2, date: '2026-06-10', type: 'Debit', amount: 2000, balance: 3000, reference: 'PAY-001', description: 'Payout' },
+    { id: 3, date: '2026-06-05', type: 'Credit', amount: 3500, balance: 5000, reference: 'INV-002', description: 'Booking Commission' },
+    { id: 4, date: '2026-05-28', type: 'Debit', amount: 1500, balance: 1500, reference: 'PAY-002', description: 'Service Fee' },
+  ]);
+
+  return (
+    <div className="space-y-6">
+      <p className="text-slate-600 dark:text-slate-400">View and manage financial ledger for each tenant</p>
+
+      <div className="bg-white dark:bg-slate-800 rounded-lg border p-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Select Tenant</p>
+            <select
+              value={selectedTenant}
+              onChange={(e) => setSelectedTenant(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm dark:bg-slate-700 dark:border-slate-600"
+            >
+              {tenants.map((tenant: any) => (
+                <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Current Balance</p>
+            <p className="text-2xl font-bold text-green-600">$5,000</p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Total Credits</p>
+            <p className="text-2xl font-bold">$8,500</p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Total Debits</p>
+            <p className="text-2xl font-bold text-red-600">$3,500</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 rounded-lg border overflow-hidden">
+        <table className="w-full">
+          <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+            <tr>
+              <th className="text-left px-6 py-3 font-medium text-sm">Date</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Type</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Description</th>
+              <th className="text-left px-6 py-3 font-medium text-sm">Reference</th>
+              <th className="text-right px-6 py-3 font-medium text-sm">Amount</th>
+              <th className="text-right px-6 py-3 font-medium text-sm">Balance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+            {ledgerEntries.map(entry => (
+              <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                <td className="px-6 py-3">{entry.date}</td>
+                <td className="px-6 py-3">
+                  <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${
+                    entry.type === 'Credit'
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                  }`}>
+                    {entry.type}
+                  </span>
+                </td>
+                <td className="px-6 py-3 text-sm">{entry.description}</td>
+                <td className="px-6 py-3 text-sm font-medium">{entry.reference}</td>
+                <td className="px-6 py-3 text-right font-medium">
+                  <span className={entry.type === 'Credit' ? 'text-green-600' : 'text-red-600'}>
+                    {entry.type === 'Credit' ? '+' : '-'}${entry.amount}
+                  </span>
+                </td>
+                <td className="px-6 py-3 text-right font-medium">${entry.balance}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 rounded-lg border p-6">
+        <h3 className="font-semibold mb-4">Payment Methods Configuration</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="border rounded p-4">
+            <p className="font-medium text-sm mb-2">Credit Payment Mode</p>
+            <div className="space-y-2 text-sm">
+              <div><span className="text-slate-600">Credit Limit:</span> <span className="font-medium">$10,000</span></div>
+              <div><span className="text-slate-600">Available:</span> <span className="font-medium text-green-600">$5,000</span></div>
+              <div><span className="text-slate-600">Status:</span> <span className="font-medium">Active</span></div>
+            </div>
+            <button className="text-blue-600 text-sm hover:text-blue-700 mt-3">Edit</button>
+          </div>
+          <div className="border rounded p-4">
+            <p className="font-medium text-sm mb-2">Debit Payment Mode</p>
+            <div className="space-y-2 text-sm">
+              <div><span className="text-slate-600">Immediate:</span> <span className="font-medium">On Transaction</span></div>
+              <div><span className="text-slate-600">Status:</span> <span className="font-medium">Active</span></div>
+            </div>
+            <button className="text-blue-600 text-sm hover:text-blue-700 mt-3">Edit</button>
+          </div>
+          <div className="border rounded p-4">
+            <p className="font-medium text-sm mb-2">Payment Gateways</p>
+            <div className="space-y-2 text-sm">
+              <div><span className="text-slate-600">Stripe:</span> <span className="font-medium">Active</span></div>
+              <div><span className="text-slate-600">Razorpay:</span> <span className="font-medium">Active</span></div>
+              <div><span className="text-slate-600">PayPal:</span> <span className="font-medium">Inactive</span></div>
+            </div>
+            <button className="text-blue-600 text-sm hover:text-blue-700 mt-3">Manage</button>
           </div>
         </div>
       </div>
