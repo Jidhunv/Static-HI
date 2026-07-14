@@ -341,7 +341,7 @@ function ConfigureTenantModal({ tenant, onClose, adminToken }: any) {
         <div className="flex">
           {/* Tabs */}
           <div className="border-r border-slate-200 dark:border-slate-700 w-48 p-4">
-            {['general', 'hotels', 'features', 'branding', 'financial', 'users'].map(tab => (
+            {['general', 'features', 'branding', 'financial', 'users'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -399,20 +399,6 @@ function ConfigureTenantModal({ tenant, onClose, adminToken }: any) {
                     </button>
                   </div>
                   <p className="text-xs text-slate-600 dark:text-slate-400 mt-2">Current: <span className="font-medium capitalize">{tenant.status}</span></p>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'hotels' && (
-              <div className="space-y-4">
-                <h3 className="font-semibold mb-4">Hotel Chains & Properties</h3>
-                <div className="border rounded p-4 space-y-3">
-                  <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded p-3">
-                    <p className="font-medium text-sm text-blue-900 dark:text-blue-300">The Plaza Hotel</p>
-                    <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">📍 New York | 🏨 2 Room Types | ✓ Active</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-500 mt-2">Status: Available for B2B & B2C</p>
-                  </div>
-                  <button className="text-blue-600 text-sm hover:text-blue-700 font-medium">+ Add Hotel Chain</button>
                 </div>
               </div>
             )}
