@@ -7,6 +7,25 @@ async function main() {
   console.log('🌱 Seeding database...');
 
   // ========================================================================
+  // PLATFORM ADMIN
+  // ========================================================================
+
+  const hashPassword = (pwd: string) => bcrypt.hashSync(pwd, 10);
+
+  await prisma.platformAdmin.upsert({
+    where: { email: 'admin@platform.com' },
+    update: {},
+    create: {
+      email: 'admin@platform.com',
+      password: hashPassword('admin123'),
+      name: 'Platform Admin',
+      role: 'superadmin',
+    },
+  });
+
+  console.log('✓ Platform admin created');
+
+  // ========================================================================
   // PLATFORM MASTERS
   // ========================================================================
 
@@ -299,8 +318,6 @@ async function main() {
   // ========================================================================
   // SAMPLE TENANTS
   // ========================================================================
-
-  const hashPassword = (pwd: string) => bcrypt.hashSync(pwd, 10);
 
   const tenant1 = await prisma.tenant.upsert({
     where: { slug: 'luxury-hotels-co' },

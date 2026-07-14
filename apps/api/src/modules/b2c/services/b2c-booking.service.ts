@@ -118,11 +118,14 @@ export class B2CBookingService {
 
     // Create booking
     const bookingCode = `${property.code}-B2C-${nanoid(8).toUpperCase()}`;
+    const confirmationNo = `CONF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5).toUpperCase()}`;
 
     const booking = await this.prisma.booking.create({
       data: {
+        systemConfirmationNo: confirmationNo,
         bookingCode,
         propertyId: dto.propertyId,
+        tenantId: tenant.id,
         sourceTenantId: tenant.id,
         bookingType: 'b2c',
         guestEmail: dto.guestEmail,
@@ -130,13 +133,20 @@ export class B2CBookingService {
         guestPhone: dto.guestPhone,
         checkInDate: dto.checkInDate,
         checkOutDate: dto.checkOutDate,
+        roomType: room.type,
         roomTypeCode: dto.roomTypeCode,
         ratePlanCode: dto.ratePlanCode,
         adults: dto.adults,
         children: dto.children || 0,
+        rateType: 'domestic',
+        rateAmount: Math.round(avgNetRate),
+        totalAmount: totalAmount,
+        currency: 'USD',
         netRate: Math.round(avgNetRate),
         numberOfNights,
+        numberOfGuests: dto.adults + (dto.children || 0),
         subtotal,
+        source: 'b2c',
         status: 'pending_payment',
 
         // Create rate breakdown for audit
@@ -188,17 +198,16 @@ export class B2CBookingService {
    * Get B2C booking details (guest - no auth required)
    */
   async getB2CBooking(bookingCode: string, guestEmail: string) {
-    const booking = await this.prisma.booking.findUnique({
-      where: { bookingCode },
+    const booking = await this.prisma.booking.findFirst({
+      where: {
+        bookingCode,
+        bookingType: 'b2c',
+        guestEmail: { equals: guestEmail, mode: 'insensitive' },
+      },
       include: { rateBreakdown: true },
     });
 
-    if (!booking || booking.bookingType !== 'b2c') {
-      throw new NotFoundException('Booking not found');
-    }
-
-    // Verify guest email matches
-    if (booking.guestEmail.toLowerCase() !== guestEmail.toLowerCase()) {
+    if (!booking) {
       throw new NotFoundException('Booking not found');
     }
 
@@ -226,16 +235,17 @@ export class B2CBookingService {
     }
 
     // Create payment record
+    const subtotalAmount = booking.subtotal || booking.totalAmount;
     await this.prisma.payment.create({
       data: {
         bookingId,
         status: 'succeeded',
         method: 'stripe',
         stripePaymentIntentId,
-        amount: booking.subtotal,
+        amount: subtotalAmount,
         currency: 'USD',
-        platformCommission: Math.round(booking.subtotal * 0.05), // 5% platform fee
-        tenantCredit: Math.round(booking.subtotal * 0.95),
+        platformCommission: Math.round(subtotalAmount * 0.05), // 5% platform fee
+        tenantCredit: Math.round(subtotalAmount * 0.95),
       },
     });
 
@@ -292,8 +302,9 @@ export class B2CBookingService {
     );
 
     const refundPercentage = daysBeforeArrival >= 7 ? 100 : 50;
-    const refundAmount = Math.round(booking.subtotal * (refundPercentage / 100));
-    const refundPenalty = booking.subtotal - refundAmount;
+    const refundableAmount = booking.subtotal || booking.totalAmount;
+    const refundAmount = Math.round(refundableAmount * (refundPercentage / 100));
+    const refundPenalty = refundableAmount - refundAmount;
 
     // Update booking
     const cancelledBooking = await this.prisma.booking.update({

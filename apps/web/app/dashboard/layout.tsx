@@ -4,12 +4,18 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/auth';
 import Link from 'next/link';
-import { LayoutDashboard, Building2, ShoppingCart, LogOut } from 'lucide-react';
+import { LayoutDashboard, Building2, ShoppingCart, LogOut, Users, Lock, DollarSign, Settings } from 'lucide-react';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dashboard/properties', label: 'Hotels', icon: Building2 },
   { href: '/dashboard/b2b', label: 'B2B', icon: ShoppingCart },
+  { section: 'Management', items: [
+    { href: '/dashboard/users', label: 'Users', icon: Users },
+    { href: '/dashboard/roles', label: 'Roles', icon: Lock },
+    { href: '/dashboard/pricing-rules', label: 'Pricing Rules', icon: DollarSign },
+    { href: '/dashboard/settings', label: 'Settings', icon: Settings },
+  ]},
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -30,16 +36,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <h1 className="text-xl font-bold">🏨 HotelHub</h1>
         </div>
 
-        <nav className="space-y-1 px-2 py-4">
+        <nav className="space-y-4 px-2 py-4">
           {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-3 rounded px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700"
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </Link>
+            'section' in item ? (
+              <div key={item.section}>
+                <p className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{item.section}</p>
+                <div className="space-y-1">
+                  {item.items.map((subitem) => (
+                    <Link
+                      key={subitem.href}
+                      href={subitem.href}
+                      className="flex items-center gap-3 rounded px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      <subitem.icon className="h-4 w-4" />
+                      {subitem.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-3 rounded px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700"
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+              </Link>
+            )
           ))}
         </nav>
 

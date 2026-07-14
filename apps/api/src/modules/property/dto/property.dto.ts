@@ -24,6 +24,10 @@ export class CreatePropertyDto {
   @IsString()
   city: string;
 
+  @IsOptional()
+  @IsString()
+  area?: string;
+
   @IsString()
   address: string;
 
@@ -56,6 +60,21 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsString()
   checkOutTime?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  website?: string;
+
+  @IsOptional()
+  amenities?: string[];
 
   @IsOptional()
   @IsIn(['active', 'inactive'])
@@ -102,6 +121,25 @@ export class UpdatePropertyDto {
   @IsOptional()
   @IsString()
   usp?: string;
+
+  @IsOptional()
+  @IsString()
+  area?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  website?: string;
+
+  @IsOptional()
+  amenities?: string[];
 
   @IsOptional()
   @IsIn(['active', 'inactive'])

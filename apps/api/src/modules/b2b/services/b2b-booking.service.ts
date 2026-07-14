@@ -123,11 +123,14 @@ export class B2BBookingService {
 
     // Create booking
     const bookingCode = `${property.code}-B2B-${nanoid(8).toUpperCase()}`;
+    const confirmationNo = `CONF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5).toUpperCase()}`;
 
     const booking = await this.prisma.booking.create({
       data: {
+        systemConfirmationNo: confirmationNo,
         bookingCode,
         propertyId: dto.propertyId,
+        tenantId: resellerTenantId,
         sourceTenantId: dto.sourceTenantId,
         resellerTenantId,
         bookingType: 'b2b',
@@ -136,13 +139,20 @@ export class B2BBookingService {
         guestPhone: dto.guestPhone,
         checkInDate: dto.checkInDate,
         checkOutDate: dto.checkOutDate,
+        roomType: 'Standard',
         roomTypeCode: dto.roomTypeCode,
         ratePlanCode: dto.ratePlanCode,
         adults: dto.adults,
         children: dto.children || 0,
+        rateType: 'international',
+        rateAmount: marketplaceRate,
+        totalAmount: finalRate,
+        currency: 'USD',
+        numberOfGuests: dto.adults + (dto.children || 0),
         netRate: Math.round(avgNetRate),
         numberOfNights,
         subtotal,
+        source: 'b2b',
         status: 'confirmed',
 
         // Create rate breakdown for audit
