@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { B2CSearchController } from './controllers/b2c-search.controller';
 import { B2CBookingController } from './controllers/b2c-booking.controller';
 import { MultiSupplierController } from './controllers/multi-supplier.controller';
+import { SettlementChainController } from './controllers/settlement-chain.controller';
 import { B2CSearchService } from './services/b2c-search.service';
 import { B2CBookingService } from './services/b2c-booking.service';
 import { InventoryPublishingService } from './services/inventory-publishing.service';
@@ -9,11 +10,17 @@ import { InventoryFilteringService } from './services/inventory-filtering.servic
 import { CommissionService } from './services/commission.service';
 import { SupplierBillingService } from './services/supplier-billing.service';
 import { SupplierPartnershipService } from './services/supplier-partnership.service';
+import { SettlementChainService } from './services/settlement-chain.service';
 import { ApiKeyModule } from '../api-key/api-key.module';
 
 @Module({
   imports: [ApiKeyModule],
-  controllers: [B2CSearchController, B2CBookingController, MultiSupplierController],
+  controllers: [
+    B2CSearchController,
+    B2CBookingController,
+    MultiSupplierController,
+    SettlementChainController,
+  ],
   providers: [
     B2CSearchService,
     B2CBookingService,
@@ -22,6 +29,7 @@ import { ApiKeyModule } from '../api-key/api-key.module';
     CommissionService,
     SupplierBillingService,
     SupplierPartnershipService,
+    SettlementChainService,
   ],
 })
 export class B2CModule {}
