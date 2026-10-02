@@ -2015,7 +2015,7 @@ function RateConfiguration() {
       };
       setRates({
         ...rates,
-        [selectedMealType]: [...rates[selectedMealType], newRate]
+        [selectedMealType as keyof typeof rates]: [...rates[selectedMealType as keyof typeof rates], newRate]
       });
       setFormData({ roomType: '', amount: '', status: 'active' });
       setShowAddForm(false);
@@ -2059,7 +2059,7 @@ function RateConfiguration() {
             </tr>
           </thead>
           <tbody className="divide-y dark:divide-slate-600">
-            {rates[selectedMealType].map((rate) => (
+            {rates[selectedMealType as keyof typeof rates].map((rate) => (
               <tr key={rate.id} className="hover:bg-gray-50 dark:hover:bg-slate-600">
                 <td className="px-6 py-4">{rate.roomType}</td>
                 <td className="px-6 py-4">₹{rate.amount.toFixed(2)}</td>
@@ -2181,7 +2181,7 @@ function RateCalendar() {
   const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const weekdayMap = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
 
-  const toggleWeekday = (day) => {
+  const toggleWeekday = (day: string) => {
     const newWeekdays = new Set(selectedWeekdays);
     if (newWeekdays.has(day)) {
       newWeekdays.delete(day);
@@ -2191,7 +2191,7 @@ function RateCalendar() {
     setSelectedWeekdays(newWeekdays);
   };
 
-  const handleCalendarDateClick = (day) => {
+  const handleCalendarDateClick = (day: number) => {
     const dateStr = formatDate(day);
     if (!startDate) {
       setStartDate(dateStr);
@@ -2209,7 +2209,7 @@ function RateCalendar() {
     }
   };
 
-  const isDateInSelectedRange = (day) => {
+  const isDateInSelectedRange = (day: any) => {
     if (!startDate || !endDate) return false;
     const dateStr = formatDate(day);
     return dateStr >= startDate && dateStr <= endDate;
@@ -2222,19 +2222,19 @@ function RateCalendar() {
     { code: 'FB', label: 'Full Board' },
   ];
 
-  const getDaysInMonth = (date) => {
+  const getDaysInMonth = (date: any) => {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   };
 
-  const getFirstDayOfMonth = (date) => {
+  const getFirstDayOfMonth = (date: any) => {
     return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
   };
 
-  const formatDate = (day) => {
+  const formatDate = (day: any) => {
     return `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   };
 
-  const isDateInRange = (day) => {
+  const isDateInRange = (day: any) => {
     const date = formatDate(day);
     const dayOfWeek = weekdays[new Date(date).getDay()];
     return dateRates.some((dr, idx) => {
@@ -2244,7 +2244,7 @@ function RateCalendar() {
     });
   };
 
-  const getDateInfo = (day) => {
+  const getDateInfo = (day: any) => {
     const date = formatDate(day);
     const dayOfWeek = weekdays[new Date(date).getDay()];
 

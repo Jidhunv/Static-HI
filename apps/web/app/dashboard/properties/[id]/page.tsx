@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { Plus, MapPin, Phone, Mail, Globe, X, FileText, DollarSign, Image as ImageIcon } from 'lucide-react';
@@ -66,8 +66,18 @@ interface FinanceContact {
   role: 'manager' | 'salesperson';
 }
 
-export default function PropertyPage({ params }: { params: { id: string } }) {
+interface PropertyPageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default function PropertyPage({ params: paramsPromise }: PropertyPageProps) {
+  const [id, setId] = useState<string>('');
   const [tab, setTab] = useState('info');
+
+  // Handle async params in Next.js 15
+  useEffect(() => {
+    paramsPromise.then((params) => setId(params.id));
+  }, [paramsPromise]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
@@ -129,9 +139,10 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
   });
 
   const { data: property, isLoading } = useQuery({
-    queryKey: ['property', params.id],
+    queryKey: ['property', id],
+    enabled: !!id,
     queryFn: async () => {
-      const res = await apiClient.get(`/properties/${params.id}`);
+      const res = await apiClient.get(`/properties/${id}`);
       return res.data;
     },
     onSuccess: (data) => {

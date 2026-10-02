@@ -1,3 +1,5 @@
+'use client';
+
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
 
 export const STATUS_COLORS = {
