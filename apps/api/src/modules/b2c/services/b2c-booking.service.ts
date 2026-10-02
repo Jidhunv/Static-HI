@@ -2,9 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { nanoid } from 'nanoid';
 import { SettlementService } from './settlement.service';
-import { splitBooking } from './settlement.math';
-
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
+import { daysUntil, MS_PER_DAY, priceStay, publishedTo, PublishedTerms } from './stay-pricing';
 
 interface StayRequest {
   tenantSlug: string;
@@ -52,22 +50,16 @@ export class B2CBookingService {
       this.prisma.ratePlan.findFirst({ where: { propertyId: dto.propertyId, code: dto.ratePlanCode } }),
     ]);
 
-    let published: { id: string; netRate: number | null; maxMarkup: number | null; commissionShare: number | null } | null = null;
+    let published: PublishedTerms | null = null;
     if (!own) {
       if (!room || !ratePlan || property.status !== 'active') return none;
       const visibility = await this.prisma.inventoryVisibility.findFirst({
-        where: {
-          supplierTenantId: property.tenantId,
-          propertyId: property.id,
-          roomId: room.id,
-          ratePlanId: ratePlan.id,
-          status: 'active',
-          OR: [{ visibilityLevel: 'public' }, { visibilityLevel: 'reserved', reservedFor: tenant.id }],
-        },
+        where: { ...publishedTo(tenant.id), propertyId: property.id, roomId: room.id, ratePlanId: ratePlan.id },
+        orderBy: { visibilityLevel: 'desc' }, // terms reserved for this tenant win over public ones
       });
       if (!visibility) return none;
 
-      const daysAhead = Math.floor((dto.checkInDate.getTime() - Date.now()) / MS_PER_DAY);
+      const daysAhead = daysUntil(dto.checkInDate);
       if (daysAhead < visibility.minBookingWindow || daysAhead > visibility.maxBookingWindow) {
         throw new BadRequestException('Check-in date is outside the booking window for this rate');
       }
@@ -97,32 +89,18 @@ export class B2CBookingService {
       throw new BadRequestException('Insufficient availability');
     }
 
-    const avgNetRate =
-      published?.netRate ?? calendarRates.reduce((sum, cr) => sum + cr.netRate, 0) / calendarRates.length;
-
-    const b2cMarkupRules = await this.prisma.rateMarkup.findMany({
+    const markupRule = await this.prisma.rateMarkup.findFirst({
       where: { tenantId: tenant.id, channel: 'b2c' },
       orderBy: { priority: 'desc' },
     });
-    let b2cMarkupPercentage = b2cMarkupRules[0]?.value || tenant.defaultB2CMarkup || 25;
-    if (published?.maxMarkup != null) {
-      b2cMarkupPercentage = Math.min(b2cMarkupPercentage, published.maxMarkup);
-    }
-
-    const netRate = Math.round(avgNetRate);
-    const b2cSellRate = Math.round(avgNetRate * (1 + b2cMarkupPercentage / 100));
-    const subtotal = Math.round(b2cSellRate * numberOfNights);
-    const taxTotal = Math.round(subtotal * 0.1); // 10% tax (simplified)
-    const totalAmount = subtotal + taxTotal;
-
-    let distributed: { inventoryVisibilityId: string; commissionPct: number } | null = null;
-    if (published) {
-      const commissionPct = published.commissionShare ?? 0;
-      const split = splitBooking(totalAmount, netRate * numberOfNights, commissionPct);
-      if (split.ownerAmount > split.sellerAmount) {
-        throw new BadRequestException('This rate cannot be sold: the markup does not cover the amount owed to the owner');
-      }
-      distributed = { inventoryVisibilityId: published.id, commissionPct };
+    const price = priceStay(
+      calendarRates.map((cr) => cr.netRate),
+      markupRule?.value || tenant.defaultB2CMarkup || 25,
+      numberOfNights,
+      published,
+    );
+    if (!price.sellable) {
+      throw new BadRequestException('This rate cannot be sold: the markup does not cover the amount owed to the owner');
     }
 
     return {
@@ -132,14 +110,17 @@ export class B2CBookingService {
         property,
         room,
         minAvailability,
-        avgNetRate,
-        netRate,
-        b2cMarkupPercentage,
-        b2cSellRate,
-        subtotal,
-        taxTotal,
-        totalAmount,
-        distributed,
+        avgNetRate: price.avgNetRate,
+        netRate: price.netRate,
+        b2cMarkupPercentage: price.appliedMarkupPct,
+        b2cSellRate: price.sellRate,
+        subtotal: price.subtotal,
+        taxTotal: price.taxTotal,
+        totalAmount: price.totalAmount,
+        distributed:
+          published && price.commissionPct !== null
+            ? { inventoryVisibilityId: published.id, commissionPct: price.commissionPct }
+            : null,
       },
     };
   }

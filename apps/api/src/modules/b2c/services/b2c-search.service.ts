@@ -1,14 +1,17 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { daysUntil, MS_PER_DAY, priceStay, publishedTo, PublishedTerms } from './stay-pricing';
+
+const pairKey = (roomId: string, ratePlanId: string) => `${roomId}:${ratePlanId}`;
 
 @Injectable()
 export class B2CSearchService {
   constructor(private prisma: PrismaService) {}
 
   /**
-   * Public search for a tenant's B2C storefront
-   * Returns tenant's own inventory + any B2B inventory they've sourced
-   * All rates shown are the final B2C sell rates (never net rates or marketplace rates)
+   * Public search for a tenant's B2C storefront.
+   * Returns the tenant's own inventory plus inventory other suppliers have published to it.
+   * All rates shown are final B2C sell rates (never net rates).
    */
   async searchTenantInventory(
     tenantSlug: string,
@@ -21,173 +24,180 @@ export class B2CSearchService {
       children?: number;
     },
   ) {
-    // Get tenant
     const tenant = await this.prisma.tenant.findUnique({
       where: { slug: tenantSlug },
-      select: {
-        id: true,
-        name: true,
-        primaryColor: true,
-        logoUrl: true,
-        defaultB2CMarkup: true,
-      },
+      select: { id: true, name: true, primaryColor: true, logoUrl: true, defaultB2CMarkup: true },
     });
-
     if (!tenant) {
       throw new BadRequestException('Tenant not found');
     }
 
     const { hotelName, city, checkInDate, checkOutDate } = query;
+    const numberOfNights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / MS_PER_DAY);
+    const daysAhead = daysUntil(checkInDate);
+    const propertyFilter = {
+      status: 'active',
+      ...(city && { city: { contains: city, mode: 'insensitive' as const } }),
+      ...(hotelName && { name: { contains: hotelName, mode: 'insensitive' as const } }),
+    };
 
-    // Find properties that are:
-    // 1. Owned by this tenant and public for B2C, OR
-    // 2. Publicly available on B2B marketplace (this tenant can source them)
+    const [published, markupRule] = await Promise.all([
+      this.prisma.inventoryVisibility.findMany({
+        where: {
+          ...publishedTo(tenant.id),
+          minBookingWindow: { lte: daysAhead },
+          maxBookingWindow: { gte: daysAhead },
+          property: propertyFilter,
+        },
+        orderBy: { visibilityLevel: 'asc' }, // 'reserved' sorts last, so it overrides 'public' below
+      }),
+      this.prisma.rateMarkup.findFirst({
+        where: { tenantId: tenant.id, channel: 'b2c' },
+        orderBy: { priority: 'desc' },
+      }),
+    ]);
+    const markupPct = markupRule?.value || tenant.defaultB2CMarkup || 25;
+
+    const termsByProperty = new Map<string, Map<string, PublishedTerms>>();
+    for (const v of published) {
+      if (!termsByProperty.has(v.propertyId)) termsByProperty.set(v.propertyId, new Map());
+      termsByProperty.get(v.propertyId)!.set(pairKey(v.roomId, v.ratePlanId), v);
+    }
+
     const properties = await this.prisma.property.findMany({
       where: {
-        status: 'active',
-        visibility: { in: ['public_b2c', 'public_both'] },
-        tenantId: tenant.id,
-        ...(city && { city: { contains: city, mode: 'insensitive' } }),
-        ...(hotelName && { name: { contains: hotelName, mode: 'insensitive' } }),
+        ...propertyFilter,
+        OR: [
+          { tenantId: tenant.id, visibility: { in: ['public_b2c', 'public_both'] } },
+          { id: { in: [...termsByProperty.keys()] } },
+        ],
       },
-      include: {
-        rooms: { include: { photos: true } },
-        ratePlans: true,
-        chargeRules: { where: { kind: 'fee' } },
-      },
+      include: { rooms: { include: { photos: true } }, ratePlans: true },
     });
 
-    // TODO: Also query B2B sourced inventory from approved distribution grants
+    const calendarRates = await this.prisma.calendarRate.findMany({
+      where: {
+        propertyId: { in: properties.map((p) => p.id) },
+        date: { gte: checkInDate, lt: checkOutDate },
+        stopSell: false,
+      },
+      select: { roomId: true, ratePlanId: true, netRate: true, availability: true },
+    });
+    const ratesByPair = new Map<string, typeof calendarRates>();
+    for (const cr of calendarRates) {
+      const key = pairKey(cr.roomId, cr.ratePlanId);
+      if (!ratesByPair.has(key)) ratesByPair.set(key, []);
+      ratesByPair.get(key)!.push(cr);
+    }
 
-    // For each property, get calendar rates and apply tenant's B2C markup
-    const results = await Promise.all(
-      properties.map(async (property) => {
-        const calendarRates = await this.prisma.calendarRate.findMany({
-          where: {
-            propertyId: property.id,
-            date: { gte: checkInDate, lt: checkOutDate },
-            stopSell: false,
-          },
-        });
+    const results = properties.map((property) => {
+      const own = property.tenantId === tenant.id;
+      const terms = termsByProperty.get(property.id);
 
-        if (calendarRates.length === 0) {
-          return null; // No availability
-        }
+      const rooms = property.rooms.map((room) => {
+        const ratePlans = property.ratePlans
+          .filter((plan) => !plan.roomId || plan.roomId === room.id)
+          .flatMap((plan) => {
+            const key = pairKey(room.id, plan.id);
+            const rates = ratesByPair.get(key);
+            const published = own ? null : terms?.get(key);
+            if (!rates || (!own && !published)) return [];
 
-        // Get B2C markup rules for this property
-        const b2cMarkupRules = await this.prisma.rateMarkup.findMany({
-          where: {
-            tenantId: tenant.id,
-            channel: 'b2c',
-          },
-          orderBy: { priority: 'desc' },
-        });
+            const availability = Math.min(...rates.map((cr) => cr.availability));
+            const price = priceStay(rates.map((cr) => cr.netRate), markupPct, numberOfNights, published);
+            if (availability < 1 || !price.sellable) return [];
 
-        const b2cMarkupPercentage =
-          b2cMarkupRules[0]?.value || tenant.defaultB2CMarkup || 25;
-
-        const numberOfNights = Math.ceil(
-          (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24),
-        );
-
-        const rooms = property.rooms.map((room) => {
-          const plans = property.ratePlans
-            .filter((rp) => !rp.roomId || rp.roomId === room.id)
-            .map((plan) => {
-              const avgNetRate =
-                calendarRates.length > 0
-                  ? calendarRates.reduce((sum, cr) => sum + cr.netRate, 0) /
-                    calendarRates.length
-                  : 0;
-
-              // Calculate B2C sell rate: netRate + markup
-              const b2cSellRate = Math.round(
-                avgNetRate * (1 + b2cMarkupPercentage / 100),
-              );
-
-              return {
+            return [
+              {
                 ratePlanCode: plan.code,
                 ratePlanName: plan.name,
                 boardType: plan.boardType,
-                b2cSellRate,
+                b2cSellRate: price.sellRate,
                 numberOfNights,
                 minLengthOfStay: plan.minLengthOfStay,
-                availability: Math.min(
-                  ...calendarRates.map((cr) => cr.availability),
-                ),
-              };
-            });
-
-          return {
-            roomId: room.id,
-            roomType: room.type,
-            roomCode: room.code,
-            maxAdults: room.maxAdults,
-            maxOccupancy: room.maxOccupancy,
-            amenityCodes: room.amenityCodes,
-            photos: room.photos,
-            ratePlans: plans.filter((p) => p.availability > 0),
-          };
-        });
+                availability,
+              },
+            ];
+          });
 
         return {
-          propertyId: property.id,
-          propertyCode: property.code,
-          propertyName: property.name,
-          city: property.city,
-          starRating: property.starCategory,
-          description: property.description,
-          checkInTime: property.checkInTime,
-          checkOutTime: property.checkOutTime,
-          rooms: rooms.filter((r) => r.ratePlans.length > 0),
+          roomId: room.id,
+          roomType: room.type,
+          roomCode: room.code,
+          maxAdults: room.maxAdults,
+          maxOccupancy: room.maxOccupancy,
+          amenityCodes: room.amenityCodes,
+          photos: room.photos,
+          ratePlans,
         };
-      }),
-    );
+      });
+
+      return {
+        propertyId: property.id,
+        propertyCode: property.code,
+        propertyName: property.name,
+        city: property.city,
+        starRating: property.starCategory,
+        description: property.description,
+        checkInTime: property.checkInTime,
+        checkOutTime: property.checkOutTime,
+        rooms: rooms.filter((r) => r.ratePlans.length > 0),
+      };
+    });
 
     return {
-      tenant: {
-        name: tenant.name,
-        primaryColor: tenant.primaryColor,
-        logoUrl: tenant.logoUrl,
-      },
-      results: results.filter((r) => r !== null),
+      tenant: { name: tenant.name, primaryColor: tenant.primaryColor, logoUrl: tenant.logoUrl },
+      results: results.filter((r) => r.rooms.length > 0),
     };
+  }
+
+  /**
+   * What a storefront tenant may show for a property: everything if it is the tenant's own public
+   * property, only the published room and rate plan pairs if it belongs to another supplier.
+   */
+  private async sellableProperty(tenantSlug: string, propertyId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { slug: tenantSlug },
+      select: { id: true, defaultB2CMarkup: true },
+    });
+    if (!tenant) {
+      throw new BadRequestException('Tenant not found');
+    }
+
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      include: { rooms: { include: { photos: true } }, ratePlans: true, chargeRules: true },
+    });
+    if (!property) return null;
+
+    if (property.tenantId === tenant.id) {
+      return ['public_b2c', 'public_both'].includes(property.visibility) ? { property, published: null } : null;
+    }
+
+    const published = await this.prisma.inventoryVisibility.findMany({
+      where: { ...publishedTo(tenant.id), propertyId },
+    });
+    if (property.status !== 'active' || published.length === 0) return null;
+    return { property, published };
   }
 
   /**
    * Get public property details
    */
-  async getPublicPropertyDetails(
-    tenantSlug: string,
-    propertyId: string,
-  ) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true },
-    });
+  async getPublicPropertyDetails(tenantSlug: string, propertyId: string) {
+    const sellable = await this.sellableProperty(tenantSlug, propertyId);
+    if (!sellable) return null;
 
-    if (!tenant) {
-      throw new BadRequestException('Tenant not found');
-    }
+    const { property, published } = sellable;
+    if (!published) return property;
 
-    const property = await this.prisma.property.findFirst({
-      where: {
-        id: propertyId,
-        tenantId: tenant.id,
-        visibility: { in: ['public_b2c', 'public_both'] },
-      },
-      include: {
-        rooms: { include: { photos: true } },
-        ratePlans: true,
-        chargeRules: true,
-      },
-    });
-
-    if (!property) {
-      return null;
-    }
-
-    return property;
+    const roomIds = new Set(published.map((v) => v.roomId));
+    const ratePlanIds = new Set(published.map((v) => v.ratePlanId));
+    return {
+      ...property,
+      rooms: property.rooms.filter((room) => roomIds.has(room.id)),
+      ratePlans: property.ratePlans.filter((plan) => ratePlanIds.has(plan.id)),
+    };
   }
 
   /**
@@ -200,63 +210,33 @@ export class B2CSearchService {
     checkInDate: Date,
     checkOutDate: Date,
   ) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true, defaultB2CMarkup: true },
-    });
+    const sellable = await this.sellableProperty(tenantSlug, propertyId);
+    if (!sellable) return null;
 
-    if (!tenant) {
-      throw new BadRequestException('Tenant not found');
-    }
+    const room = sellable.property.rooms.find((r) => r.code === roomCode);
+    if (!room) return null;
 
-    const property = await this.prisma.property.findFirst({
-      where: {
-        id: propertyId,
-        tenantId: tenant.id,
-        visibility: { in: ['public_b2c', 'public_both'] },
-      },
-    });
+    // For another supplier's room, only the published rate plans, at the published net rate
+    const terms = sellable.published?.filter((v) => v.roomId === room.id);
+    if (terms && terms.length === 0) return null;
 
-    if (!property) {
-      return null;
-    }
-
-    const room = await this.prisma.room.findFirst({
-      where: {
-        propertyId,
-        code: roomCode,
-      },
-      include: {
-        ratePlans: true,
-      },
-    });
-
-    if (!room) {
-      return null;
-    }
-
-    // Get calendar rates for the period
     const calendarRates = await this.prisma.calendarRate.findMany({
       where: {
         roomId: room.id,
+        ...(terms && { ratePlanId: { in: terms.map((v) => v.ratePlanId) } }),
         date: { gte: checkInDate, lt: checkOutDate },
         stopSell: false,
       },
-      include: { ratePlan: true },
     });
-
-    const numberOfNights = Math.ceil(
-      (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24),
-    );
 
     return {
       roomCode,
       roomType: room.type,
-      numberOfNights,
+      numberOfNights: Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / MS_PER_DAY),
       availability: Math.min(...calendarRates.map((cr) => cr.availability)),
       rates: calendarRates.map((cr) => ({
         date: cr.date,
-        netRatePerNight: cr.netRate,
+        netRatePerNight: terms?.find((v) => v.ratePlanId === cr.ratePlanId)?.netRate ?? cr.netRate,
         availability: cr.availability,
       })),
     };

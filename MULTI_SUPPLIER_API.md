@@ -5,8 +5,8 @@ Lets a supplier (inventory owner) publish rate plans for other suppliers (distri
 partnerships and commission rules, and produce monthly invoices.
 
 **Status:** these endpoints compile and the server maps them, but they have not been exercised end to end and
-have no automated tests. Published inventory can be booked by other tenants through the B2C booking API, and
-paying such a booking creates the settlements; storefront search does not list it yet. The JSON bodies below illustrate the response shape; the values are examples.
+have no automated tests. Published inventory appears in other tenants' storefront search and can be booked through the B2C booking
+API; paying such a booking creates the settlements. The JSON bodies below illustrate the response shape; the values are examples.
 
 Settlements (who pays whom, and when) are a separate, tested API: see
 [SETTLEMENT_AND_SECURITY.md](SETTLEMENT_AND_SECURITY.md).

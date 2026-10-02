@@ -24,16 +24,20 @@ Automatically, by the booking flow:
 
 1. A supplier publishes a room and rate plan (`InventoryVisibility`: `public`, or `reserved` for one
    tenant) with a net rate, a markup cap and a commission percentage.
-2. Another tenant's storefront can then review and book that room (`POST /b2c/bookings/review`,
-   `POST /b2c/bookings` with its own `tenantSlug`). The price uses the published net rate and the
-   storefront's B2C markup, limited by the cap. The booking is refused if it falls outside the published
-   booking window, or if the markup would not cover what the seller owes the owner.
-3. The booking is stored under the inventory owner, with the storefront as `resellerTenantId`; the
+2. The room then appears in other tenants' storefronts: search (`POST /b2c/search`), property details and
+   room availability list it alongside the tenant's own inventory, showing only the published room and
+   rate plan pairs. Terms reserved for a tenant take precedence over public ones.
+3. The storefront can review and book it (`POST /b2c/bookings/review`, `POST /b2c/bookings` with its own
+   `tenantSlug`). Search and booking share one pricing function: the published net rate plus the
+   storefront's B2C markup, limited by the cap. Inventory is hidden from search, and booking refused, when
+   the check-in date is outside the published booking window or the markup would not cover what the seller
+   owes the owner.
+4. The booking is stored under the inventory owner, with the storefront as `resellerTenantId`; the
    commission and inventory link are stored on its rate breakdown.
-4. When the booking is paid (`POST /b2c/bookings/:id/payment`), the payment record, the confirmation, both
+5. When the booking is paid (`POST /b2c/bookings/:id/payment`), the payment record, the confirmation, both
    settlements and the revenue transaction are written in one database transaction. A booking can be paid
    once; a second attempt returns 400.
-5. If the booking is cancelled, unpaid settlements become `cancelled` and the revenue transaction
+6. If the booking is cancelled, unpaid settlements become `cancelled` and the revenue transaction
    `refunded`. If a settlement was already paid it is left as is and the revenue transaction becomes
    `disputed` for manual recovery.
 
@@ -160,14 +164,18 @@ Encrypted at rest by the application: MFA secrets only. `Tenant.bankAccountEncry
 On a local machine, 2026-10-02:
 
 - `prisma validate` passes; `nest build` and the type-check are clean; the API boots.
-- Unit tests (`pnpm --filter @hotel/api test`, 10 tests): TOTP against the RFC 6238 test vectors, encryption
-  round trip and tamper detection, settlement split arithmetic.
+- Unit tests (`pnpm --filter @hotel/api test`, 14 tests): TOTP against the RFC 6238 test vectors, encryption
+  round trip and tamper detection, settlement split arithmetic, stay pricing.
 - A manual smoke script against the running API (27 checks, not kept in the repo): authentication, MFA
   enrolment, rejected wrong, replayed and reused codes, input validation, duplicate prevention, both payout
   steps, tenant isolation, audit entries.
 - A second smoke script for the booking flow (22 checks, not kept in the repo): pricing of published
   inventory, booking ownership, settlement amounts on payment, double payment, cancellation before and
   after payout, own-inventory bookings, unprofitable terms, booking window, paused inventory.
+- A third smoke script for the storefront (20 checks, not kept in the repo): published inventory appears in
+  search, details and availability with only the published room and rate plan; search price equals booking
+  price; no net rate or owner identity in search results; reserved terms override public ones; unprofitable,
+  out-of-window and paused inventory is hidden; the owner's own search is unchanged.
 
 Not verified: the multi-supplier endpoints in [MULTI_SUPPLIER_API.md](MULTI_SUPPLIER_API.md) at runtime,
 behaviour under concurrent load, and anything involving a real payment provider. No performance measurements
@@ -181,9 +189,9 @@ Needed before taking real payments:
    payment reference from anyone who knows the booking ID and guest email. It now creates settlements, so
    a fake "payment" produces a platform payable. Settlements still need an admin with MFA to be marked
    paid, but this must be replaced by a verified gateway webhook before launch. Nothing moves money.
-2. **Storefront search does not list other suppliers' published inventory**, and the property-detail and
-   room-availability endpoints only serve a tenant's own properties. Published inventory can be booked
-   through the API but is not discoverable in the storefront yet.
+2. **The booking site itself is untested with published inventory.** The API returns it in the same shape
+   as own inventory, but the frontend has not been run against it, and it falls back to mock data when
+   calls fail. The storefront's `tenantSlug` is also taken from the request rather than from the API key.
 3. **Cancellation is partial.** Open settlements are voided, but cancellation penalties are not shared
    between seller and owner, paid settlements are not reversed, and chargebacks are not handled.
 4. **Bookings do not reduce availability.** Creating or cancelling a B2C booking does not change the
@@ -201,7 +209,7 @@ Needed before taking real payments:
 11. **Key management.** The encryption key is an environment variable with no rotation.
 12. **MFA at login**, and MFA on other sensitive actions (API key creation, bank detail changes).
 13. **Multi-supplier endpoints** take unvalidated request bodies and have no tests.
-14. **Test coverage** is limited to the 10 unit tests above.
+14. **Test coverage** is limited to the 14 unit tests above.
 
 Useful later: partner webhooks and notifications, fraud and velocity checks, batched payouts, report
 exports, dispute threads, commission rule templates.
