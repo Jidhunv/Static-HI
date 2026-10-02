@@ -1,41 +1,45 @@
-import { Controller, Post, Get, Put, Body, Param, UseGuards, HttpCode } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { MFAGuard } from '../../../shared/guards/mfa.guard';
+import { PrincipalGuard } from '../../../shared/guards/principal.guard';
+import { CurrentPrincipal, Principal } from '../../../shared/security/principal';
+import { CreateSettlementDto, MarkPaidDto } from '../dto/settlement.dto';
 import { SettlementService } from '../services/settlement.service';
-import { MFAGuard } from '@shared/guards/mfa.guard';
-import { CurrentTenant } from '@shared/decorators/current-tenant.decorator';
 
-@Controller('api/v1/settlements')
-@UseGuards(MFAGuard)
+@Controller('settlements')
+@UseGuards(PrincipalGuard)
 export class SettlementController {
-  constructor(private settlement: SettlementService) {}
+  constructor(private settlements: SettlementService) {}
 
-  @Post('execute')
-  async execute(@Body() body: any) {
-    return this.settlement.executeTwo(body);
+  @Post()
+  @UseGuards(MFAGuard)
+  create(@CurrentPrincipal() actor: Principal, @Body() dto: CreateSettlementDto) {
+    return this.settlements.create(dto, actor);
   }
 
-  @Put('seller/:id/pay')
-  @HttpCode(200)
-  async paySeller(@Param('id') id: string, @Body('ref') ref: string) {
-    return this.settlement.processSeller(id, ref);
+  @Put(':id/seller-paid')
+  @UseGuards(MFAGuard)
+  markSellerPaid(@CurrentPrincipal() actor: Principal, @Param('id') id: string, @Body() dto: MarkPaidDto) {
+    return this.settlements.markSellerPaid(id, dto.paymentReference, actor);
   }
 
-  @Put('inter/:id/pay')
-  @HttpCode(200)
-  async payInter(
-    @CurrentTenant() tenantId: string,
-    @Param('id') id: string,
-    @Body('ref') ref: string,
-  ) {
-    return this.settlement.payInter(id, tenantId, ref);
+  @Put(':id/inter-supplier-paid')
+  @UseGuards(MFAGuard)
+  markInterSupplierPaid(@CurrentPrincipal() actor: Principal, @Param('id') id: string, @Body() dto: MarkPaidDto) {
+    return this.settlements.markInterSupplierPaid(id, dto.paymentReference, actor);
   }
 
-  @Get('owed')
-  async owed(@CurrentTenant() tenantId: string) {
-    return this.settlement.getOwed(tenantId);
+  @Get('receivable')
+  receivable(@CurrentPrincipal() actor: Principal) {
+    return this.settlements.receivable(actor);
   }
 
-  @Get('dashboard')
-  async dash(@CurrentTenant() tenantId: string) {
-    return this.settlement.dashboard(tenantId);
+  @Get('payable')
+  payable(@CurrentPrincipal() actor: Principal) {
+    return this.settlements.payable(actor);
+  }
+
+  @Get('summary')
+  summary(@CurrentPrincipal() actor: Principal) {
+    return this.settlements.summary(actor);
   }
 }

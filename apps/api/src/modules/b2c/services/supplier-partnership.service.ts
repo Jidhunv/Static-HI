@@ -90,6 +90,7 @@ export class SupplierPartnershipService {
    * Add commission rule to partnership
    */
   async addCommissionRule(
+    tenantId: string,
     partnershipId: string,
     data: {
       commissionPct: number;
@@ -101,32 +102,28 @@ export class SupplierPartnershipService {
       lengthOfStayMax?: number;
     },
   ) {
-    const partnership = await this.prisma.supplierPartnership.findUnique({
-      where: { id: partnershipId },
-    });
-
-    if (!partnership) {
-      throw new NotFoundException('Partnership not found');
+    const partnership = await this.partyTo(partnershipId, tenantId, true);
+    if (!(data.commissionPct >= 0 && data.commissionPct <= 100)) {
+      throw new BadRequestException('Commission percentage must be between 0 and 100');
     }
 
-    const rule = await this.prisma.supplierCommissionRule.create({
+    return this.prisma.supplierCommissionRule.create({
       data: {
         partnershipId,
-        commissionPct: data.commissionPct,
+        supplierId: partnership.sourceSupplierStr,
+        baseCommissionPct: data.commissionPct,
         country: data.country,
-        channel: data.channel,
-        partnerTier: data.partnerTier,
+        channel: data.channel ?? 'all',
+        partnerTier: data.partnerTier ?? 'standard',
         season: data.season,
-        lengthOfStayMin: data.lengthOfStayMin,
-        lengthOfStayMax: data.lengthOfStayMax,
+        minLengthOfStay: data.lengthOfStayMin ?? 1,
+        maxLengthOfStay: data.lengthOfStayMax,
       },
     });
-
-    return rule;
   }
 
   /**
-   * Get applicable commission for a booking
+   * Commission for a booking: highest-priority matching rule, else the partnership default
    */
   async getApplicableCommission(
     partnershipId: string,
@@ -146,54 +143,49 @@ export class SupplierPartnershipService {
       throw new NotFoundException('Partnership not found');
     }
 
-    // Find matching commission rule
-    const rules = await this.prisma.supplierCommissionRule.findMany({
+    const nights = criteria.lengthOfStay ?? 1;
+    const rule = await this.prisma.supplierCommissionRule.findFirst({
       where: {
         partnershipId,
-        country: { in: [criteria.country, null] },
-        channel: { in: [criteria.channel, null] },
-        partnerTier: { in: [criteria.partnerTier, null] },
-        season: { in: [criteria.season, null] },
+        active: true,
+        channel: { in: [criteria.channel, 'all'] },
+        partnerTier: criteria.partnerTier ?? 'standard',
+        minLengthOfStay: { lte: nights },
+        AND: [
+          { OR: [{ country: criteria.country }, { country: null }] },
+          { OR: [{ season: criteria.season ?? null }, { season: null }] },
+          { OR: [{ maxLengthOfStay: null }, { maxLengthOfStay: { gte: nights } }] },
+        ],
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
     });
 
-    // Find most specific matching rule
-    for (const rule of rules) {
-      if (criteria.lengthOfStay !== undefined) {
-        if (rule.lengthOfStayMin && rule.lengthOfStayMax) {
-          if (
-            criteria.lengthOfStay >= rule.lengthOfStayMin &&
-            criteria.lengthOfStay <= rule.lengthOfStayMax
-          ) {
-            return rule.commissionPct;
-          }
-        }
-      } else {
-        if (!rule.lengthOfStayMin && !rule.lengthOfStayMax) {
-          return rule.commissionPct;
-        }
-      }
-    }
+    return rule?.baseCommissionPct ?? partnership.defaultCommissionPct;
+  }
 
-    // Fall back to default
-    return partnership.defaultCommissionPct;
+  /** Loads a partnership only if the tenant is a party to it (optionally only the inventory owner). */
+  private async partyTo(partnershipId: string, tenantId: string, sourceOnly = false) {
+    const partnership = await this.prisma.supplierPartnership.findFirst({
+      where: {
+        id: partnershipId,
+        OR: sourceOnly
+          ? [{ sourceSupplierStr: tenantId }]
+          : [{ sourceSupplierStr: tenantId }, { targetSupplierStr: tenantId }],
+      },
+    });
+    if (!partnership) throw new NotFoundException('Partnership not found');
+    return partnership;
   }
 
   /**
    * Update partnership status
    */
   async updatePartnershipStatus(
+    tenantId: string,
     partnershipId: string,
     status: 'active' | 'paused' | 'terminated',
   ) {
-    const partnership = await this.prisma.supplierPartnership.findUnique({
-      where: { id: partnershipId },
-    });
-
-    if (!partnership) {
-      throw new NotFoundException('Partnership not found');
-    }
+    await this.partyTo(partnershipId, tenantId);
 
     return await this.prisma.supplierPartnership.update({
       where: { id: partnershipId },
@@ -233,6 +225,7 @@ export class SupplierPartnershipService {
    * Validate partnership can handle booking
    */
   async validatePartnershipForBooking(
+    tenantId: string,
     partnershipId: string,
     data: {
       netRate: number;
@@ -241,8 +234,8 @@ export class SupplierPartnershipService {
       channel: 'b2c' | 'b2b';
     },
   ): Promise<{ isValid: boolean; reason?: string }> {
-    const partnership = await this.prisma.supplierPartnership.findUnique({
-      where: { id: partnershipId },
+    const partnership = await this.prisma.supplierPartnership.findFirst({
+      where: { id: partnershipId, OR: [{ sourceSupplierStr: tenantId }, { targetSupplierStr: tenantId }] },
     });
 
     if (!partnership) {
@@ -278,17 +271,12 @@ export class SupplierPartnershipService {
    * Get partnership performance metrics
    */
   async getPartnershipMetrics(
+    tenantId: string,
     partnershipId: string,
     startDate: Date,
     endDate: Date,
   ) {
-    const partnership = await this.prisma.supplierPartnership.findUnique({
-      where: { id: partnershipId },
-    });
-
-    if (!partnership) {
-      throw new NotFoundException('Partnership not found');
-    }
+    const partnership = await this.partyTo(partnershipId, tenantId);
 
     // Get transactions through this partnership
     const transactions = await this.prisma.revenueTransaction.findMany({

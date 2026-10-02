@@ -26,7 +26,7 @@ import { TenantMiddleware } from './shared/middleware/tenant.middleware';
 import { RLSMiddleware } from './shared/middleware/rls.middleware';
 import { AllExceptionsFilter } from './shared/filters/exception.filter';
 import { SecurityInterceptor } from './shared/interceptors/security.interceptor';
-import { EncryptionService } from './shared/security/encryption.service';
+import { SecurityModule } from './shared/security/security.module';
 
 @Module({
   imports: [
@@ -38,6 +38,7 @@ import { EncryptionService } from './shared/security/encryption.service';
     }),
     PassportModule,
     PrismaModule,
+    SecurityModule,
     AuthModule,
     AdminModule,
     TenantModule,
@@ -54,7 +55,6 @@ import { EncryptionService } from './shared/security/encryption.service';
     ApiKeyModule,
   ],
   providers: [
-    EncryptionService,
     { provide: APP_PIPE, useValue: new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true } }) },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: SecurityInterceptor },

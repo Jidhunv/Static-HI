@@ -1,27 +1,29 @@
 import { Controller, Post, Body, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { IsEmail, IsObject, IsOptional, IsString } from 'class-validator';
 import { LoginDto } from './dto/login.dto';
 
+// Every field needs a decorator: the global ValidationPipe rejects undeclared properties.
 class AdminLoginDto {
-  email: string;
-  password: string;
+  @IsEmail() email: string;
+  @IsString() password: string;
 }
 
 class OnboardDto {
-  tenantId: string;
-  name: string;
-  businessType: string;
-  adminEmail: string;
-  adminPassword: string;
-  country: string;
-  city?: string;
-  area?: string;
-  strengths?: string;
-  profileDescription?: string;
-  salesContact?: { name: string; phone: string; email: string };
-  financeContact?: { name: string; phone: string; email: string };
-  owner?: { name: string; phone: string; email: string };
-  documentUrl?: string;
+  @IsString() tenantId: string;
+  @IsString() name: string;
+  @IsString() businessType: string;
+  @IsEmail() adminEmail: string;
+  @IsString() adminPassword: string;
+  @IsString() country: string;
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsString() area?: string;
+  @IsOptional() @IsString() strengths?: string;
+  @IsOptional() @IsString() profileDescription?: string;
+  @IsOptional() @IsObject() salesContact?: { name: string; phone: string; email: string };
+  @IsOptional() @IsObject() financeContact?: { name: string; phone: string; email: string };
+  @IsOptional() @IsObject() owner?: { name: string; phone: string; email: string };
+  @IsOptional() @IsString() documentUrl?: string;
 }
 
 @Controller('auth')

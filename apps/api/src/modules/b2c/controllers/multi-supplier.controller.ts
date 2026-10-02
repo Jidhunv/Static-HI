@@ -15,10 +15,9 @@ import { InventoryFilteringService } from '../services/inventory-filtering.servi
 import { CommissionService } from '../services/commission.service';
 import { SupplierBillingService } from '../services/supplier-billing.service';
 import { SupplierPartnershipService } from '../services/supplier-partnership.service';
-import { ApiKeyGuard } from '../../../shared/guards/api-key.guard';
-import { CurrentTenant } from '../../../shared/decorators/current-tenant.decorator';
+import { ApiKeyGuard, TenantFromApiKey } from '../../api-key/api-key.guard';
 
-@Controller('api/v1/b2b/multi-supplier')
+@Controller('b2b/multi-supplier')
 @UseGuards(ApiKeyGuard)
 export class MultiSupplierController {
   constructor(
@@ -38,7 +37,7 @@ export class MultiSupplierController {
   @Post('inventory/publish')
   @HttpCode(HttpStatus.CREATED)
   async publishInventoryAsPublic(
-    @CurrentTenant() supplierTenantId: string,
+    @TenantFromApiKey() supplierTenantId: string,
     @Body()
     body: {
       propertyId: string;
@@ -61,7 +60,7 @@ export class MultiSupplierController {
    */
   @Put('inventory/:propertyId/:roomId/:ratePlanId/private')
   async makeInventoryPrivate(
-    @CurrentTenant() supplierTenantId: string,
+    @TenantFromApiKey() supplierTenantId: string,
     @Param('propertyId') propertyId: string,
     @Param('roomId') roomId: string,
     @Param('ratePlanId') ratePlanId: string,
@@ -81,7 +80,7 @@ export class MultiSupplierController {
    */
   @Put('inventory/:propertyId/:roomId/:ratePlanId/pause')
   async pauseInventory(
-    @CurrentTenant() supplierTenantId: string,
+    @TenantFromApiKey() supplierTenantId: string,
     @Param('propertyId') propertyId: string,
     @Param('roomId') roomId: string,
     @Param('ratePlanId') ratePlanId: string,
@@ -100,7 +99,7 @@ export class MultiSupplierController {
    * Get all published inventory
    */
   @Get('inventory/published')
-  async getPublishedInventory(@CurrentTenant() supplierTenantId: string) {
+  async getPublishedInventory(@TenantFromApiKey() supplierTenantId: string) {
     return await this.inventoryPublishingService.getPublishedInventory(supplierTenantId);
   }
 
@@ -110,7 +109,7 @@ export class MultiSupplierController {
    */
   @Put('inventory/:propertyId/:roomId/:ratePlanId/commission')
   async updateCommission(
-    @CurrentTenant() supplierTenantId: string,
+    @TenantFromApiKey() supplierTenantId: string,
     @Param('propertyId') propertyId: string,
     @Param('roomId') roomId: string,
     @Param('ratePlanId') ratePlanId: string,
@@ -145,7 +144,7 @@ export class MultiSupplierController {
       minDaysNotice?: number;
       maxDaysAdvance?: number;
       minProfitMargin?: number;
-      partnerTier?: string;
+      partnerTier?: 'gold' | 'silver' | 'bronze' | 'standard';
       limit?: number;
     },
   ) {
@@ -178,7 +177,7 @@ export class MultiSupplierController {
    * Get inventory summary dashboard
    */
   @Get('inventory/summary')
-  async getInventorySummary(@CurrentTenant() supplierTenantId: string) {
+  async getInventorySummary(@TenantFromApiKey() supplierTenantId: string) {
     return await this.inventoryFilteringService.getInventorySummary(supplierTenantId);
   }
 
@@ -206,7 +205,7 @@ export class MultiSupplierController {
   @Post('partnerships')
   @HttpCode(HttpStatus.CREATED)
   async createPartnership(
-    @CurrentTenant() sourceSupplierTenantId: string,
+    @TenantFromApiKey() sourceSupplierTenantId: string,
     @Body()
     body: {
       targetSupplierTenantId: string;
@@ -232,7 +231,7 @@ export class MultiSupplierController {
    */
   @Get('partnerships')
   async getPartnerships(
-    @CurrentTenant() supplierTenantId: string,
+    @TenantFromApiKey() supplierTenantId: string,
     @Query('direction') direction: 'outgoing' | 'incoming' | 'all' = 'all',
   ) {
     return await this.partnershipService.getSupplierPartnerships(supplierTenantId, direction);
@@ -244,10 +243,11 @@ export class MultiSupplierController {
    */
   @Put('partnerships/:partnershipId')
   async updatePartnershipStatus(
+    @TenantFromApiKey() tenantId: string,
     @Param('partnershipId') partnershipId: string,
     @Body() body: { status: 'active' | 'paused' | 'terminated' },
   ) {
-    return await this.partnershipService.updatePartnershipStatus(partnershipId, body.status);
+    return await this.partnershipService.updatePartnershipStatus(tenantId, partnershipId, body.status);
   }
 
   /**
@@ -256,11 +256,13 @@ export class MultiSupplierController {
    */
   @Get('partnerships/:partnershipId/metrics')
   async getPartnershipMetrics(
+    @TenantFromApiKey() tenantId: string,
     @Param('partnershipId') partnershipId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
   ) {
     return await this.partnershipService.getPartnershipMetrics(
+      tenantId,
       partnershipId,
       new Date(startDate),
       new Date(endDate),
@@ -274,6 +276,7 @@ export class MultiSupplierController {
   @Post('partnerships/:partnershipId/commission-rules')
   @HttpCode(HttpStatus.CREATED)
   async addCommissionRule(
+    @TenantFromApiKey() tenantId: string,
     @Param('partnershipId') partnershipId: string,
     @Body()
     body: {
@@ -286,7 +289,7 @@ export class MultiSupplierController {
       lengthOfStayMax?: number;
     },
   ) {
-    return await this.partnershipService.addCommissionRule(partnershipId, body);
+    return await this.partnershipService.addCommissionRule(tenantId, partnershipId, body);
   }
 
   /**
@@ -295,6 +298,7 @@ export class MultiSupplierController {
    */
   @Post('partnerships/:partnershipId/validate')
   async validatePartnershipForBooking(
+    @TenantFromApiKey() tenantId: string,
     @Param('partnershipId') partnershipId: string,
     @Body()
     body: {
@@ -304,7 +308,7 @@ export class MultiSupplierController {
       channel: 'b2c' | 'b2b';
     },
   ) {
-    return await this.partnershipService.validatePartnershipForBooking(partnershipId, body);
+    return await this.partnershipService.validatePartnershipForBooking(tenantId, partnershipId, body);
   }
 
   // ============== COMMISSIONS ==============
@@ -315,7 +319,7 @@ export class MultiSupplierController {
    */
   @Get('commissions/summary')
   async getCommissionSummary(
-    @CurrentTenant() supplierTenantId: string,
+    @TenantFromApiKey() supplierTenantId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
   ) {
@@ -332,7 +336,7 @@ export class MultiSupplierController {
    */
   @Get('commissions/distributor-summary')
   async getDistributorSummary(
-    @CurrentTenant() distributorTenantId: string,
+    @TenantFromApiKey() distributorTenantId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
   ) {
@@ -382,7 +386,7 @@ export class MultiSupplierController {
   @Post('billing/invoice/:period')
   @HttpCode(HttpStatus.CREATED)
   async generateInvoice(
-    @CurrentTenant() supplierId: string,
+    @TenantFromApiKey() supplierId: string,
     @Param('period') period: string,
   ) {
     return await this.billingService.generateMonthlyInvoice(supplierId, period);
@@ -394,7 +398,7 @@ export class MultiSupplierController {
    */
   @Get('billing/invoices')
   async getInvoices(
-    @CurrentTenant() supplierId: string,
+    @TenantFromApiKey() supplierId: string,
     @Query('limit') limit: number = 20,
   ) {
     return await this.billingService.getSupplierInvoices(supplierId, limit);
@@ -405,8 +409,8 @@ export class MultiSupplierController {
    * Send invoice to supplier
    */
   @Put('billing/invoice/:invoiceId/send')
-  async sendInvoice(@Param('invoiceId') invoiceId: string) {
-    return await this.billingService.sendInvoice(invoiceId);
+  async sendInvoice(@TenantFromApiKey() supplierId: string, @Param('invoiceId') invoiceId: string) {
+    return await this.billingService.sendInvoice(supplierId, invoiceId);
   }
 
   /**
@@ -415,47 +419,11 @@ export class MultiSupplierController {
    */
   @Put('billing/invoice/:invoiceId/mark-paid')
   async markInvoicePaid(
+    @TenantFromApiKey() supplierId: string,
     @Param('invoiceId') invoiceId: string,
     @Body() body: { paymentReference: string },
   ) {
-    return await this.billingService.markInvoicePaid(invoiceId, body.paymentReference);
-  }
-
-  /**
-   * POST /api/v1/b2b/multi-supplier/billing/settlement/:period
-   * Create settlement
-   */
-  @Post('billing/settlement/:period')
-  @HttpCode(HttpStatus.CREATED)
-  async createSettlement(
-    @CurrentTenant() supplierId: string,
-    @Param('period') period: string,
-  ) {
-    return await this.billingService.createSettlement(supplierId, period);
-  }
-
-  /**
-   * GET /api/v1/b2b/multi-supplier/billing/settlements
-   * Get supplier settlements
-   */
-  @Get('billing/settlements')
-  async getSettlements(
-    @CurrentTenant() supplierId: string,
-    @Query('limit') limit: number = 20,
-  ) {
-    return await this.billingService.getSupplierSettlements(supplierId, limit);
-  }
-
-  /**
-   * PUT /api/v1/b2b/multi-supplier/billing/settlement/:settlementId/process
-   * Process settlement payout
-   */
-  @Put('billing/settlement/:settlementId/process')
-  async processSettlement(
-    @Param('settlementId') settlementId: string,
-    @Body() body: { bankDetails: any },
-  ) {
-    return await this.billingService.processSettlementPayout(settlementId, body.bankDetails);
+    return await this.billingService.markInvoicePaid(supplierId, invoiceId, body.paymentReference);
   }
 
   /**
@@ -463,7 +431,7 @@ export class MultiSupplierController {
    * Get billing summary
    */
   @Get('billing/summary')
-  async getBillingSummary(@CurrentTenant() supplierId: string) {
+  async getBillingSummary(@TenantFromApiKey() supplierId: string) {
     return await this.billingService.getBillingSummary(supplierId);
   }
 
@@ -492,7 +460,7 @@ export class MultiSupplierController {
    * Get upcoming payment due dates
    */
   @Get('billing/due-dates')
-  async getUpcomingDueDates(@Query('limit') limit: number = 10) {
-    return await this.billingService.getUpcomingDueDates(limit);
+  async getUpcomingDueDates(@TenantFromApiKey() supplierId: string, @Query('limit') limit: number = 10) {
+    return await this.billingService.getUpcomingDueDates(supplierId, limit);
   }
 }

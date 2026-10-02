@@ -1,22 +1,17 @@
-import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
-import { MFAService } from '@shared/security/mfa.service';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { MFAService } from '../security/mfa.service';
 
+/** Use after PrincipalGuard. Fails closed: no enabled MFA or no valid x-mfa-code means no access. */
 @Injectable()
 export class MFAGuard implements CanActivate {
   constructor(private mfa: MFAService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const req = context.switchToHttp().getRequest();
-    const userId = req.user?.id || req.headers['x-tenant-id'];
-    const mfaToken = req.headers['x-mfa-token'];
-
-    if (!userId) throw new ForbiddenException('No user');
-
-    if (mfaToken) {
-      const valid = await this.mfa.validateMFA(userId, mfaToken);
-      if (!valid) throw new ForbiddenException('Invalid MFA');
+    const request = context.switchToHttp().getRequest();
+    const code = request.headers['x-mfa-code'];
+    if (!request.principal || typeof code !== 'string' || !(await this.mfa.verify(request.principal, code))) {
+      throw new ForbiddenException('A valid MFA code is required: enable MFA and send the code in the x-mfa-code header');
     }
-
     return true;
   }
 }

@@ -1,158 +1,182 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { PrismaService } from '@shared/prisma/prisma.service';
-import { EncryptionService } from '@shared/security/encryption.service';
-import { AuditService } from '@shared/audit/audit.service';
-import { Decimal } from '@prisma/client/runtime/library';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { Principal } from '../../../shared/security/principal';
+import { AuditLogService } from '../../audit/audit-log.service';
+import { CreateSettlementDto } from '../dto/settlement.dto';
+import { splitBooking } from './settlement.math';
 
-interface SettlementExecute {
-  bookingId: string;
-  guestPaid: Decimal;
-  sellerTenantId: string;
-  hotelTenantId: string;
-  netRate: Decimal;
-  nights: number;
-  commissionPct: number;
-}
+const INTER_SUPPLIER_DUE_DAYS = 15;
+const OPEN = ['pending', 'overdue'];
 
 @Injectable()
 export class SettlementService {
-  private logger = new Logger(SettlementService.name);
-
   constructor(
     private prisma: PrismaService,
-    private encryption: EncryptionService,
-    private audit: AuditService,
+    private audit: AuditLogService,
   ) {}
 
-  async executeTwo(data: SettlementExecute) {
-    const { bookingId, guestPaid, sellerTenantId, hotelTenantId, netRate, nights, commissionPct } = data;
-
-    const platformFee = guestPaid * 0.02;
-    const gatewayFee = guestPaid * 0.03;
-    const netAmount = guestPaid - platformFee - gatewayFee;
-    const commission = netRate * nights * (commissionPct / 100);
-
-    const [seller, inter] = await this.prisma.$transaction([
-      this.prisma.settlement.create({
-        data: {
-          tenantId: sellerTenantId,
-          settlementType: 'seller',
-          totalAmount: netAmount,
-          status: 'pending_seller',
-          bookingReference: bookingId,
-        },
-      }),
-      this.prisma.settlement.create({
-        data: {
-          tenantId: hotelTenantId,
-          settlementType: 'inter_supplier',
-          payerTenantId: sellerTenantId,
-          payeeTenantId: hotelTenantId,
-          totalAmount: commission,
-          dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
-          status: 'pending_inter_supplier',
-          bookingReference: bookingId,
-        },
-      }),
-    ]);
-
-    await this.prisma.revenueTransaction.create({
-      data: {
-        bookingId,
-        originSupplier: hotelTenantId,
-        sellingSupplier: sellerTenantId,
-        guestPaid: guestPaid.toNumber(),
-        netToHotel: (netRate * nights).toNumber(),
-        commissionToHotel: commission.toNumber(),
-        platformFee: platformFee.toNumber(),
-        paymentGatewayFee: gatewayFee.toNumber(),
-        sellerSettlementId: seller.id,
-        interSupplierSettlementId: inter.id,
-      },
-    });
-
-    await this.audit.log({
-      action: 'settlement.created',
-      entityType: 'settlement',
-      entityId: seller.id,
-      userId: sellerTenantId,
-      changes: { tier1: seller.id, tier2: inter.id },
-    });
-
-    return { seller: seller.id, inter: inter.id };
-  }
-
-  async processSeller(settleId: string, ref: string) {
-    const settle = await this.prisma.settlement.findUniqueOrThrow({ where: { id: settleId } });
-
-    if (settle.status !== 'pending_seller') throw new BadRequestException('Invalid status');
-
-    const updated = await this.prisma.settlement.update({
-      where: { id: settleId },
-      data: { status: 'completed_seller', paymentReference: ref, paidDate: new Date() },
-    });
-
-    await this.audit.log({
-      action: 'settlement.processed',
-      entityType: 'settlement',
-      entityId: settleId,
-      userId: settle.tenantId,
-      changes: { status: 'completed_seller', ref },
-    });
-
-    return updated;
-  }
-
-  async payInter(settleId: string, distributorId: string, ref: string) {
-    const settle = await this.prisma.settlement.findUniqueOrThrow({ where: { id: settleId } });
-
-    if (settle.payerTenantId !== distributorId || settle.status !== 'pending_inter_supplier') {
-      throw new BadRequestException('Unauthorized or invalid status');
+  /** Creates both settlements for a booking: platform → seller, and seller → inventory owner. */
+  async create(dto: CreateSettlementDto, actor: Principal) {
+    this.requireAdmin(actor);
+    if (dto.sellerTenantId === dto.ownerTenantId) {
+      throw new BadRequestException('Seller and owner must be different tenants');
     }
 
-    const updated = await this.prisma.settlement.update({
-      where: { id: settleId },
-      data: { status: 'completed_inter_supplier', paymentReference: ref, paidDate: new Date() },
-    });
-
-    await this.audit.log({
-      action: 'settlement.paid',
-      entityType: 'settlement',
-      entityId: settleId,
-      userId: distributorId,
-      changes: { status: 'completed_inter_supplier' },
-    });
-
-    return updated;
-  }
-
-  async getOwed(tenantId: string) {
-    return this.prisma.settlement.findMany({
-      where: {
-        payeeTenantId: tenantId,
-        settlementType: 'inter_supplier',
-        status: { in: ['pending_inter_supplier', 'overdue'] },
-      },
-      select: { id: true, totalAmount: true, dueDate: true, status: true, payerTenantId: true },
-    });
-  }
-
-  async dashboard(tenantId: string) {
-    const [received, owed] = await Promise.all([
-      this.prisma.settlement.aggregate({
-        where: { tenantId, settlementType: 'seller', status: 'completed_seller' },
-        _sum: { totalAmount: true },
-      }),
-      this.prisma.settlement.aggregate({
-        where: { payerTenantId: tenantId, settlementType: 'inter_supplier', status: 'completed_inter_supplier' },
-        _sum: { totalAmount: true },
-      }),
+    const [booking, tenants] = await Promise.all([
+      this.prisma.booking.findUnique({ where: { id: dto.bookingId }, select: { totalAmount: true, currency: true } }),
+      this.prisma.tenant.count({ where: { id: { in: [dto.sellerTenantId, dto.ownerTenantId] } } }),
     ]);
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (tenants !== 2) throw new NotFoundException('Seller or owner tenant not found');
 
-    return {
-      received: received._sum.totalAmount?.toNumber() ?? 0,
-      paid: owed._sum.totalAmount?.toNumber() ?? 0,
-      net: (received._sum.totalAmount?.toNumber() ?? 0) - (owed._sum.totalAmount?.toNumber() ?? 0),
-    };
+    const split = splitBooking(booking.totalAmount, dto.ownerNetAmount, dto.commissionPct);
+    if (split.ownerAmount > split.sellerAmount) {
+      throw new BadRequestException('Amount owed to the owner exceeds what the seller receives for this booking');
+    }
+
+    const common = { bookingId: dto.bookingId, currency: booking.currency };
+    const dueDate = new Date(Date.now() + INTER_SUPPLIER_DUE_DAYS * 86_400_000);
+
+    try {
+      const [seller, interSupplier] = await this.prisma.$transaction([
+        this.prisma.supplierSettlement.create({
+          data: { ...common, settlementType: 'seller', tenantId: dto.sellerTenantId, amount: split.sellerAmount },
+        }),
+        this.prisma.supplierSettlement.create({
+          data: {
+            ...common,
+            settlementType: 'inter_supplier',
+            tenantId: dto.ownerTenantId,
+            payerTenantId: dto.sellerTenantId,
+            amount: split.ownerAmount,
+            dueDate,
+          },
+        }),
+        this.prisma.revenueTransaction.create({
+          data: {
+            bookingId: dto.bookingId,
+            inventoryVisibilityId: dto.inventoryVisibilityId,
+            originSupplier: dto.ownerTenantId,
+            sellingSupplier: dto.sellerTenantId,
+            guestPaid: booking.totalAmount,
+            netToHotel: dto.ownerNetAmount,
+            markupAmount: split.markup,
+            commissionToHotel: split.commission,
+            platformFee: split.platformFee,
+            paymentGatewayFee: split.gatewayFee,
+            taxAmount: 0,
+          },
+        }),
+      ]);
+      await this.log(actor, 'create', seller.id, { seller, interSupplier });
+      return { seller, interSupplier };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Settlements already exist for this booking');
+      }
+      throw e;
+    }
+  }
+
+  /** Platform records that it has paid the seller. */
+  async markSellerPaid(id: string, paymentReference: string, actor: Principal) {
+    this.requireAdmin(actor);
+    return this.markPaid({ id, settlementType: 'seller', status: 'pending' }, paymentReference, actor);
+  }
+
+  /** Seller records that it has paid the inventory owner; closes the revenue transaction. */
+  async markInterSupplierPaid(id: string, paymentReference: string, actor: Principal) {
+    const payerTenantId = this.requireTenant(actor);
+    const settlement = await this.markPaid(
+      { id, settlementType: 'inter_supplier', payerTenantId, status: { in: OPEN } },
+      paymentReference,
+      actor,
+    );
+    await this.prisma.revenueTransaction.updateMany({
+      where: { bookingId: settlement.bookingId, status: 'pending' },
+      data: { status: 'settled', settlementDate: settlement.paidDate },
+    });
+    return settlement;
+  }
+
+  /** Money other suppliers still owe this tenant. */
+  receivable(actor: Principal) {
+    return this.prisma.supplierSettlement.findMany({
+      where: { tenantId: this.requireTenant(actor), settlementType: 'inter_supplier', status: { in: OPEN } },
+      orderBy: { dueDate: 'asc' },
+    });
+  }
+
+  /** Money this tenant still owes inventory owners. */
+  payable(actor: Principal) {
+    return this.prisma.supplierSettlement.findMany({
+      where: { payerTenantId: this.requireTenant(actor), status: { in: OPEN } },
+      orderBy: { dueDate: 'asc' },
+    });
+  }
+
+  async summary(actor: Principal) {
+    const tenantId = this.requireTenant(actor);
+    const sum = async (where: Prisma.SupplierSettlementWhereInput) =>
+      (await this.prisma.supplierSettlement.aggregate({ where, _sum: { amount: true } }))._sum.amount ?? 0;
+
+    const [received, paidOut, receivable, payable] = await Promise.all([
+      sum({ tenantId, status: 'paid' }),
+      sum({ payerTenantId: tenantId, status: 'paid' }),
+      sum({ tenantId, status: { in: OPEN } }),
+      sum({ payerTenantId: tenantId, status: { in: OPEN } }),
+    ]);
+    return { received, paidOut, receivable, payable };
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_1AM)
+  markOverdue() {
+    return this.prisma.supplierSettlement.updateMany({
+      where: { settlementType: 'inter_supplier', status: 'pending', dueDate: { lt: new Date() } },
+      data: { status: 'overdue' },
+    });
+  }
+
+  /** The status filter makes this atomic: a settlement can only be marked paid once. */
+  private async markPaid(where: Prisma.SupplierSettlementWhereInput, paymentReference: string, actor: Principal) {
+    const { count } = await this.prisma.supplierSettlement.updateMany({
+      where,
+      data: { status: 'paid', paymentReference, paidDate: new Date() },
+    });
+    if (count === 0) throw new NotFoundException('No open settlement with that id for this account');
+
+    const settlement = await this.prisma.supplierSettlement.findUniqueOrThrow({ where: { id: where.id as string } });
+    await this.log(actor, 'update', settlement.id, { status: 'paid', paymentReference });
+    return settlement;
+  }
+
+  private requireAdmin(actor: Principal) {
+    if (!actor.isPlatformAdmin) throw new ForbiddenException('Platform admin only');
+  }
+
+  private requireTenant(actor: Principal): string {
+    if (!actor.tenantId) throw new ForbiddenException('Tenant user only');
+    return actor.tenantId;
+  }
+
+  private log(actor: Principal, action: string, entityId: string, changes: unknown) {
+    return this.audit.log({
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      userEmail: actor.email,
+      userName: actor.name,
+      action,
+      entity: 'SupplierSettlement',
+      entityId,
+      changes,
+    });
   }
 }

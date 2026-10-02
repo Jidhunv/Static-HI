@@ -12,116 +12,117 @@ datasource db {
 // ============================================================================
 
 model Tenant {
-  id                    String   @id @default(cuid())
-  name                  String
-  slug                  String   @unique /// lowercase, used in subdomain
-  businessType          String   /// hotel_chain, dmc, ota, wholesaler, travel_agency
-  status                String   @default("pending") /// pending, active, suspended
-  primaryCurrency       String   @default("USD")
+  id              String @id @default(cuid())
+  name            String
+  slug            String @unique /// lowercase, used in subdomain
+  businessType    String /// hotel_chain, dmc, ota, wholesaler, travel_agency
+  status          String @default("pending") /// pending, active, suspended
+  primaryCurrency String @default("USD")
 
   // Branding / white-label
-  logoUrl               String?
-  primaryColor          String?  @default("#7c3aed") /// default: lavender
-  secondaryColor        String?
-  fontFamily            String?  @default("inter") /// inter, roboto, poppins, etc.
+  logoUrl        String?
+  primaryColor   String? @default("#7c3aed") /// default: lavender
+  secondaryColor String?
+  fontFamily     String? @default("inter") /// inter, roboto, poppins, etc.
 
   // Finance & KYC
-  kycStatus             String   @default("pending") /// pending, verified, rejected
-  kycDocuments          String[] /// JSON paths to uploaded docs
-  bankAccountEncrypted  String?  /// encrypted JSON: {accountNumber, ifsc, beneficiaryName, accountType}
-  panEncrypted          String?  /// encrypted
-  gstEncrypted          String?  /// encrypted
+  kycStatus            String   @default("pending") /// pending, verified, rejected
+  kycDocuments         String[] /// JSON paths to uploaded docs
+  bankAccountEncrypted String? /// encrypted JSON: {accountNumber, ifsc, beneficiaryName, accountType}
+  panEncrypted         String? /// encrypted
+  gstEncrypted         String? /// encrypted
 
   // Defaults
-  defaultB2BMargin      Int      @default(15) /// percentage
-  defaultB2CMarkup      Int      @default(25) /// percentage
-  commissionRate        Int      @default(5)  /// platform take-rate on B2B/B2C, %
+  defaultB2BMargin Int @default(15) /// percentage
+  defaultB2CMarkup Int @default(25) /// percentage
+  commissionRate   Int @default(5) /// platform take-rate on B2B/B2C, %
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   users                 TenantUser[]
   properties            Property[]
   suppliers             Supplier[]
   rateMarkups           RateMarkup[]
-  outgoingDistributions DistributionGrant[] @relation("source_tenant")
-  incomingDistributions DistributionGrant[] @relation("target_tenant")
+  outgoingDistributions DistributionGrant[]     @relation("source_tenant")
+  incomingDistributions DistributionGrant[]     @relation("target_tenant")
   settings              TenantSettings?
   propertyConfigs       PropertyConfiguration[] @relation("tenant_property_config")
-  propertyRates         PropertyRate[] @relation("tenant_rates")
-  tenantBookings        Booking[] @relation("tenant_bookings")
+  propertyRates         PropertyRate[]          @relation("tenant_rates")
+  tenantBookings        Booking[]               @relation("tenant_bookings")
   auditLogs             AuditLog[]
-  b2bUsers              B2BUser[] @relation("b2b_users")
-  roles                 TenantRole[] @relation("tenant_roles")
-  b2bAgents             B2BAgent[] @relation("tenant_b2b_agents")
-  commissions           Commission[] @relation("tenant_commissions")
-  settlements           Settlement[] @relation("tenant_settlements")
-  apiKeys               ApiKey[] @relation("tenant_api_keys")
+  b2bUsers              B2BUser[]               @relation("b2b_users")
+  roles                 TenantRole[]            @relation("tenant_roles")
+  b2bAgents             B2BAgent[]              @relation("tenant_b2b_agents")
+  commissions           Commission[]            @relation("tenant_commissions")
+  settlements           Settlement[]            @relation("tenant_settlements")
+  apiKeys               ApiKey[]                @relation("tenant_api_keys")
 
   // Multi-supplier relations
-  outgoingPartnerships SupplierPartnership[] @relation("partnership_source")
-  incomingPartnerships SupplierPartnership[] @relation("partnership_target")
-  inventorySupplier    InventoryVisibility[] @relation("inventory_supplier")
+  outgoingPartnerships SupplierPartnership[]    @relation("partnership_source")
+  incomingPartnerships SupplierPartnership[]    @relation("partnership_target")
+  inventorySupplier    InventoryVisibility[]    @relation("inventory_supplier")
   commissionRules      SupplierCommissionRule[] @relation("commission_rules")
-  supplierInvoices     SupplierInvoice[] @relation("supplier_invoices")
+  supplierInvoices     SupplierInvoice[]        @relation("supplier_invoices")
+  supplierSettlements  SupplierSettlement[]     @relation("supplier_settlements")
 
   @@index([status])
   @@index([slug])
 }
 
 model TenantSettings {
-  id                  String   @id @default(cuid())
-  tenantId            String   @unique
-  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // Per-tenant master overrides
-  allowedAmenities    String[] /// JSON array of amenity IDs this tenant can use
-  allowedCountries    String[] /// restrict booking to certain countries
-  bookingWindow       Int      @default(365) /// max days in advance
+  allowedAmenities String[] /// JSON array of amenity IDs this tenant can use
+  allowedCountries String[] /// restrict booking to certain countries
+  bookingWindow    Int      @default(365) /// max days in advance
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
 }
 
 model ApiKey {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation("tenant_api_keys", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("tenant_api_keys", fields: [tenantId], references: [id], onDelete: Cascade)
 
   // API Key (hashed in DB)
-  keyHash             String   @unique /// SHA256 hash of the actual key
-  keyPrefix           String   /// First 8 characters of key for display (e.g., "sk_live_ab12...")
+  keyHash   String @unique /// SHA256 hash of the actual key
+  keyPrefix String /// First 8 characters of key for display (e.g., "sk_live_ab12...")
 
   // Key Details
-  name                String   /// e.g., "Mobile App", "Web Frontend", "OTA Integration"
-  description         String?  /// Optional description of key usage
+  name        String /// e.g., "Mobile App", "Web Frontend", "OTA Integration"
+  description String? /// Optional description of key usage
 
   // Permissions
-  permissions         String[] /// ["search", "booking.create", "booking.read", "booking.cancel", etc.]
+  permissions String[] /// ["search", "booking.create", "booking.read", "booking.cancel", etc.]
 
   // Rate Limiting
-  rateLimit           Int      @default(1000) /// requests per minute
+  rateLimit Int @default(1000) /// requests per minute
 
   // Access Control
-  allowedOrigins      String[] /// CORS origins allowed to use this key (empty = all)
-  allowedIPs          String[] /// IP addresses allowed (empty = all)
+  allowedOrigins String[] /// CORS origins allowed to use this key (empty = all)
+  allowedIPs     String[] /// IP addresses allowed (empty = all)
 
   // Metadata
-  lastUsedAt          DateTime?
-  createdBy           String?  /// User ID who created the key
+  lastUsedAt DateTime?
+  createdBy  String? /// User ID who created the key
 
   // Status
-  status              String   @default("active") /// active, revoked, suspended
-  expiresAt           DateTime? /// Optional expiration date
+  status    String    @default("active") /// active, revoked, suspended
+  expiresAt DateTime? /// Optional expiration date
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  apiLogs             ApiLog[]
+  apiLogs ApiLog[]
 
   @@index([tenantId])
   @@index([keyHash])
@@ -130,25 +131,25 @@ model ApiKey {
 }
 
 model ApiLog {
-  id                  String   @id @default(cuid())
-  apiKeyId            String
-  apiKey              ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
 
   // Request Details
-  method              String   /// GET, POST, etc.
-  endpoint            String   /// /b2c/search, /b2c/bookings, etc.
-  statusCode          Int      /// 200, 400, 401, 429, etc.
+  method     String /// GET, POST, etc.
+  endpoint   String /// /b2c/search, /b2c/bookings, etc.
+  statusCode Int /// 200, 400, 401, 429, etc.
 
   // Response Info
-  responseTime        Int      /// milliseconds
-  errorMessage        String?  /// Error message if failed
+  responseTime Int /// milliseconds
+  errorMessage String? /// Error message if failed
 
   // Client Info
-  ipAddress           String
-  userAgent           String?
-  origin              String?
+  ipAddress String
+  userAgent String?
+  origin    String?
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([apiKeyId, createdAt])
   @@index([statusCode])
@@ -156,27 +157,33 @@ model ApiLog {
 }
 
 model TenantUser {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  email               String
-  password            String   /// hashed
-  firstName           String
-  lastName            String
-  role                String   /// admin, staff
+  email     String
+  password  String /// hashed
+  firstName String
+  lastName  String
+  role      String /// admin, staff
 
   // Staff scoping
-  permissions         String[] /// module_view, module_edit, etc. — JSON array
+  permissions String[] /// module_view, module_edit, etc. — JSON array
 
-  emailVerified       Boolean  @default(false)
-  status              String   @default("active") /// active, inactive, suspended
-  lastLogin           DateTime?
+  emailVerified Boolean   @default(false)
+  status        String    @default("active") /// active, inactive, suspended
+  lastLogin     DateTime?
 
-  roles               TenantRole[] @relation("user_roles")
+  // Two-factor authentication (TOTP)
+  mfaEnabled     Boolean  @default(false)
+  mfaSecret      String? /// AES-256-GCM encrypted TOTP secret
+  mfaBackupCodes String[] @default([]) /// SHA-256 hashes, single use
+  mfaLastStep    Int? /// last accepted TOTP time step (replay protection)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  roles TenantRole[] @relation("user_roles")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -184,16 +191,22 @@ model TenantUser {
 }
 
 model PlatformAdmin {
-  id                  String   @id @default(cuid())
-  email               String   @unique
-  password            String   /// hashed
-  name                String
-  role                String   @default("admin") /// admin, superadmin
-  status              String   @default("active") /// active, inactive, suspended
-  lastLogin           DateTime?
+  id        String    @id @default(cuid())
+  email     String    @unique
+  password  String /// hashed
+  name      String
+  role      String    @default("admin") /// admin, superadmin
+  status    String    @default("active") /// active, inactive, suspended
+  lastLogin DateTime?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  // Two-factor authentication (TOTP)
+  mfaEnabled     Boolean  @default(false)
+  mfaSecret      String? /// AES-256-GCM encrypted TOTP secret
+  mfaBackupCodes String[] @default([]) /// SHA-256 hashes, single use
+  mfaLastStep    Int? /// last accepted TOTP time step (replay protection)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([email])
 }
@@ -203,29 +216,29 @@ model PlatformAdmin {
 // ============================================================================
 
 model AuditLog {
-  id                  String   @id @default(cuid())
-  tenantId            String?  /// null if platform admin action
-  tenant              Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String  @id @default(cuid())
+  tenantId String? /// null if platform admin action
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  userId              String   /// TenantUser or PlatformAdmin ID
-  userEmail           String
-  userName            String
+  userId    String /// TenantUser or PlatformAdmin ID
+  userEmail String
+  userName  String
 
-  action              String   /// create, update, delete, view, login, logout
-  entity              String   /// User, Property, Booking, B2BAgent, Commission, Settlement
-  entityId            String?  /// ID of affected entity
-  entityName          String?  /// Name for readability
+  action     String /// create, update, delete, view, login, logout
+  entity     String /// User, Property, Booking, B2BAgent, Commission, Settlement
+  entityId   String? /// ID of affected entity
+  entityName String? /// Name for readability
 
-  changes             Json?    /// old vs new values {old: {}, new: {}}
-  status              String   @default("success") /// success, failure
-  errorMessage        String?
-  ipAddress           String?
-  userAgent           String?
+  changes      Json? /// old vs new values {old: {}, new: {}}
+  status       String  @default("success") /// success, failure
+  errorMessage String?
+  ipAddress    String?
+  userAgent    String?
 
-  isArchived          Boolean  @default(false)
-  archivedAt          DateTime?
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([tenantId])
   @@index([userId])
@@ -240,25 +253,25 @@ model AuditLog {
 // ============================================================================
 
 model GlobalHotel {
-  id                  String   @id @default(cuid())
+  id               String   @id @default(cuid())
   /// from source data import
-  name                String
-  address             String
-  city                String
-  state               String?
-  country             String
-  postalCode          String?
-  latitude            Float
-  longitude           Float
-  starRating          Int?
-  chainAffiliation    String?
-  amenitiesMaster     String[] /// JSON array of standardized amenity codes
+  name             String
+  address          String
+  city             String
+  state            String?
+  country          String
+  postalCode       String?
+  latitude         Float
+  longitude        Float
+  starRating       Int?
+  chainAffiliation String?
+  amenitiesMaster  String[] /// JSON array of standardized amenity codes
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  properties          Property[]
+  properties Property[]
 
   @@unique([name, country, latitude, longitude]) /// prevent duplicates
   @@index([name, country])
@@ -266,114 +279,114 @@ model GlobalHotel {
 }
 
 model Country {
-  id                  String   @id @default(cuid())
-  code                String   @unique /// ISO 3166-1 alpha-2
-  name                String   @unique
-  createdAt           DateTime @default(now())
+  id        String   @id @default(cuid())
+  code      String   @unique /// ISO 3166-1 alpha-2
+  name      String   @unique
+  createdAt DateTime @default(now())
 
-  states              State[]
-  properties          Property[] @relation("property_country")
+  states     State[]
+  properties Property[] @relation("property_country")
 
   @@index([name])
 }
 
 model State {
-  id                  String   @id @default(cuid())
-  countryId           String
-  country             Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  name                String
-  code                String?
-  createdAt           DateTime @default(now())
+  id        String   @id @default(cuid())
+  countryId String
+  country   Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  name      String
+  code      String?
+  createdAt DateTime @default(now())
 
-  properties          Property[] @relation("property_state")
+  properties Property[] @relation("property_state")
 
   @@unique([countryId, name])
   @@index([countryId])
 }
 
 model City {
-  id                  String   @id @default(cuid())
-  name                String
-  countryCode         String   /// denormalized for fast lookup
-  createdAt           DateTime @default(now())
+  id          String   @id @default(cuid())
+  name        String
+  countryCode String /// denormalized for fast lookup
+  createdAt   DateTime @default(now())
 
   @@unique([name, countryCode])
   @@index([name, countryCode])
 }
 
 model Currency {
-  id                  String   @id @default(cuid())
-  code                String   @unique /// USD, EUR, INR, etc.
-  name                String
-  symbol              String
-  exchangeRate        Float    @default(1.0) /// vs USD base
-  createdAt           DateTime @default(now())
+  id           String   @id @default(cuid())
+  code         String   @unique /// USD, EUR, INR, etc.
+  name         String
+  symbol       String
+  exchangeRate Float    @default(1.0) /// vs USD base
+  createdAt    DateTime @default(now())
 
   /// Phase 1: FX relations
-  fxRatesAsBase       FXRate[] @relation("fx_base")
-  fxRatesAsQuote      FXRate[] @relation("fx_quote")
+  fxRatesAsBase  FXRate[] @relation("fx_base")
+  fxRatesAsQuote FXRate[] @relation("fx_quote")
 }
 
 model Amenity {
-  id                  String   @id @default(cuid())
-  code                String   @unique /// WIFI, AC, PARKING, etc.
-  name                String
-  category            String   /// wifi, climate, parking, entertainment, etc.
-  icon                String?
-  createdAt           DateTime @default(now())
+  id        String   @id @default(cuid())
+  code      String   @unique /// WIFI, AC, PARKING, etc.
+  name      String
+  category  String /// wifi, climate, parking, entertainment, etc.
+  icon      String?
+  createdAt DateTime @default(now())
 
   @@index([category])
 }
 
 model BedType {
-  id                  String   @id @default(cuid())
-  code                String   @unique
-  name                String   /// Single, Double, Queen, King, Twin, etc.
-  createdAt           DateTime @default(now())
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String /// Single, Double, Queen, King, Twin, etc.
+  createdAt DateTime @default(now())
 }
 
 model BoardCode {
-  id                  String   @id @default(cuid())
-  code                String   @unique /// BB, HB, FB, etc.
-  name                String   /// Bed & Breakfast, Half Board, Full Board
-  description         String?
-  createdAt           DateTime @default(now())
+  id          String   @id @default(cuid())
+  code        String   @unique /// BB, HB, FB, etc.
+  name        String /// Bed & Breakfast, Half Board, Full Board
+  description String?
+  createdAt   DateTime @default(now())
 }
 
 model CancellationPolicyTemplate {
-  id                  String   @id @default(cuid())
-  name                String
-  code                String   @unique
-  description         String?
-  isDefault           Boolean  @default(false)
-  createdAt           DateTime @default(now())
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  description String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
   @@index([isDefault])
 }
 
 model Tax {
-  id                  String   @id @default(cuid())
-  name                String
-  code                String   @unique /// VAT, GST, etc.
-  percentage          Float
-  isInclusive         Boolean  @default(false) /// in price or added on top
-  createdAt           DateTime @default(now())
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique /// VAT, GST, etc.
+  percentage  Float
+  isInclusive Boolean  @default(false) /// in price or added on top
+  createdAt   DateTime @default(now())
 
   @@index([code])
 }
 
 model Chain {
-  id                  String   @id @default(cuid())
-  name                String   @unique
-  logo                String?
-  createdAt           DateTime @default(now())
+  id        String   @id @default(cuid())
+  name      String   @unique
+  logo      String?
+  createdAt DateTime @default(now())
 }
 
 model LegalInformationType {
-  id                  String   @id @default(cuid())
-  name                String   @unique /// PAN Certificate, GST Certificate, etc.
-  code                String   @unique
-  createdAt           DateTime @default(now())
+  id        String   @id @default(cuid())
+  name      String   @unique /// PAN Certificate, GST Certificate, etc.
+  code      String   @unique
+  createdAt DateTime @default(now())
 }
 
 // ============================================================================
@@ -381,88 +394,89 @@ model LegalInformationType {
 // ============================================================================
 
 model Property {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  globalHotelId       String?
-  globalHotel         GlobalHotel? @relation(fields: [globalHotelId], references: [id])
+  globalHotelId String?
+  globalHotel   GlobalHotel? @relation(fields: [globalHotelId], references: [id])
 
-  name                String
-  code                String   /// auto-generated, unique per tenant
-  type                String   /// Hotel, Resort, Hostel, Vacation Rental, etc.
+  name String
+  code String /// auto-generated, unique per tenant
+  type String /// Hotel, Resort, Hostel, Vacation Rental, etc.
 
-  countryId           String
-  country             Country  @relation("property_country", fields: [countryId], references: [id])
-  stateId             String?
-  state               State?   @relation("property_state", fields: [stateId], references: [id])
-  city                String
-  area                String?  /// Area/Region/District
-  address             String
-  postalCode          String?
-  latitude            Float
-  longitude           Float
+  countryId  String
+  country    Country @relation("property_country", fields: [countryId], references: [id])
+  stateId    String?
+  state      State?  @relation("property_state", fields: [stateId], references: [id])
+  city       String
+  area       String? /// Area/Region/District
+  address    String
+  postalCode String?
+  latitude   Float
+  longitude  Float
 
   // Contact Info
-  phone               String?
-  email               String?
-  website             String?
+  phone   String?
+  email   String?
+  website String?
 
   // Amenities
-  amenities           String[] /// JSON array of amenity names
+  amenities String[] /// JSON array of amenity names
 
-  starCategory        Int?     /// 1-5 stars
-  chainId             String?  /// FK to Chain
-  chainName           String?  /// denormalized for fast lookup
+  starCategory Int? /// 1-5 stars
+  chainId      String? /// FK to Chain
+  chainName    String? /// denormalized for fast lookup
 
-  checkInTime         String   @default("14:00")
-  checkOutTime        String   @default("12:00")
+  checkInTime  String @default("14:00")
+  checkOutTime String @default("12:00")
 
-  status              String   @default("active") /// active, inactive, archived
-  inactiveComment     String?
+  status          String  @default("active") /// active, inactive, archived
+  inactiveComment String?
 
   // Policies
-  allowEarlyCheckIn   Boolean  @default(false)
-  allowLateCheckOut   Boolean  @default(false)
-  allowChildren       String   @default("yes") /// yes, no
-  childrenPolicy      String?  /// free child up to X, or text
+  allowEarlyCheckIn Boolean @default(false)
+  allowLateCheckOut Boolean @default(false)
+  allowChildren     String  @default("yes") /// yes, no
+  childrenPolicy    String? /// free child up to X, or text
 
   // Finance
-  disableTDS          Boolean  @default(false)
-  contractedBy        String[] /// JSON array of supplier IDs or names
+  disableTDS   Boolean  @default(false)
+  contractedBy String[] /// JSON array of supplier IDs or names
 
   // Supplier flag
-  isSupplier          Boolean  @default(false) /// if true, this property can also act as a supplier to others
-  applicableForROH    Boolean  @default(false) /// Run of House
+  isSupplier       Boolean @default(false) /// if true, this property can also act as a supplier to others
+  applicableForROH Boolean @default(false) /// Run of House
 
   // Visibility & Distribution
-  visibility          String   @default("private") /// private, public_b2b, public_b2c, public_both
-  distributionMode    String   @default("open") /// open, permissioned — only relevant if visibility includes b2b
+  visibility       String @default("private") /// private, public_b2b, public_b2c, public_both
+  distributionMode String @default("open") /// open, permissioned — only relevant if visibility includes b2b
 
   // Content
-  description         String?
-  usp                 String?  /// Unique Selling Proposition
-  photos              PropertyPhoto[]
+  description String?
+  usp         String? /// Unique Selling Proposition
+  photos      PropertyPhoto[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  rooms               Room[]
-  ratePlans           RatePlan[]
-  policies            CancellationPolicy[]
-  chargeRules         ChargeRule[]
-  documents           PropertyDocument[]
-  bankDetails         PropertyBankDetail[]
-  suppliers           Supplier[] @relation("property_suppliers")
-  promotions          Promotion[]
-  bookings            Booking[] @relation("property_bookings")
-  propertyConfig      PropertyConfiguration[] @relation("property_config")
-  propertyRates       PropertyRate[] @relation("property_rates")
+  rooms          Room[]
+  ratePlans      RatePlan[]
+  policies       CancellationPolicy[]
+  chargeRules    ChargeRule[]
+  documents      PropertyDocument[]
+  bankDetails    PropertyBankDetail[]
+  suppliers      Supplier[]              @relation("property_suppliers")
+  promotions     Promotion[]
+  bookings       Booking[]               @relation("property_bookings")
+  propertyConfig PropertyConfiguration[] @relation("property_config")
+  propertyRates  PropertyRate[]          @relation("property_rates")
 
   /// Phase 1: Inventory ledger
   inventoryLedger     InventoryLedger[]
   currentAvailability CurrentAvailability[]
+  inventoryVisibilities InventoryVisibility[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -473,55 +487,55 @@ model Property {
 }
 
 model PropertyPhoto {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  url                 String   /// signed S3 URL
-  label               String   /// Living Room, Bedroom, Pool, etc.
-  imageName           String?
-  isHero              Boolean  @default(false)
+  url       String /// signed S3 URL
+  label     String /// Living Room, Bedroom, Pool, etc.
+  imageName String?
+  isHero    Boolean @default(false)
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([propertyId])
 }
 
 model PropertyDocument {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   legalInformationType String
-  documentUrl         String   /// signed S3 URL
-  expiryDate          DateTime?
-  reminder1Alert      Int?     /// days before expiry
-  reminder2Alert      Int?
-  reminder3Alert      Int?
+  documentUrl          String /// signed S3 URL
+  expiryDate           DateTime?
+  reminder1Alert       Int? /// days before expiry
+  reminder2Alert       Int?
+  reminder3Alert       Int?
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([propertyId])
   @@index([expiryDate])
 }
 
 model PropertyBankDetail {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  bankName            String
-  beneficiaryName     String
-  accountNumberEnc    String   /// encrypted at rest
-  ifscCodeEnc         String?  /// encrypted
-  accountType         String   /// Savings, Current, etc.
-  chequeDocumentUrl   String?  /// signed S3 URL
+  bankName          String
+  beneficiaryName   String
+  accountNumberEnc  String /// encrypted at rest
+  ifscCodeEnc       String? /// encrypted
+  accountType       String /// Savings, Current, etc.
+  chequeDocumentUrl String? /// signed S3 URL
 
-  verificationStatus  String   @default("unverified") /// unverified, verified, failed
-  applyToChain        Boolean  @default(false) /// user flag to apply to all chain properties
+  verificationStatus String  @default("unverified") /// unverified, verified, failed
+  applyToChain       Boolean @default(false) /// user flag to apply to all chain properties
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([propertyId]) /// one primary bank detail per property
   @@index([propertyId])
@@ -533,51 +547,51 @@ model PropertyBankDetail {
 // ============================================================================
 
 model SupplierPartnership {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Source supplier (hotel/property owner)
-  sourceSupplier      Tenant   @relation("partnership_source", fields: [sourceSupplier], references: [id], onDelete: Cascade)
-  sourceSupplierStr   String   @map("sourceSupplier")
+  sourceSupplier    Tenant @relation("partnership_source", fields: [sourceSupplierStr], references: [id], onDelete: Cascade)
+  sourceSupplierStr String @map("sourceSupplier")
 
   /// Target supplier (distributor/partner)
-  targetSupplier      Tenant   @relation("partnership_target", fields: [targetSupplierStr], references: [id], onDelete: Cascade)
-  targetSupplierStr   String   @map("targetSupplier")
+  targetSupplier    Tenant @relation("partnership_target", fields: [targetSupplierStr], references: [id], onDelete: Cascade)
+  targetSupplierStr String @map("targetSupplier")
 
   /// Partnership type
-  partnershipType     String   @default("public_inventory") /// public_inventory, exclusive, reserved
+  partnershipType String @default("public_inventory") /// public_inventory, exclusive, reserved
 
   /// Commission terms
-  minCommissionPct    Float    @default(8)   /// Minimum % source gets
-  maxCommissionPct    Float    @default(25)  /// Maximum % source gets
-  defaultCommissionPct Float   @default(15)  /// Default commission for new rates
+  minCommissionPct     Float @default(8) /// Minimum % source gets
+  maxCommissionPct     Float @default(25) /// Maximum % source gets
+  defaultCommissionPct Float @default(15) /// Default commission for new rates
 
   /// Booking window (days)
-  minBookingWindow    Int      @default(0)   /// Days before arrival
-  maxBookingWindow    Int      @default(365) /// Days in advance
+  minBookingWindow Int @default(0) /// Days before arrival
+  maxBookingWindow Int @default(365) /// Days in advance
 
   /// Markup rules
-  maxMarkupPct        Float    @default(30)  /// Max % target can add
-  minMarkupPct        Float    @default(5)   /// Min % to make deal worthwhile
+  maxMarkupPct Float @default(30) /// Max % target can add
+  minMarkupPct Float @default(5) /// Min % to make deal worthwhile
 
   /// Geographic restrictions
-  allowedCountries    String[] @default([])  /// Empty = all countries allowed
+  allowedCountries String[] @default([]) /// Empty = all countries allowed
 
   /// Status
-  status              String   @default("active") /// active, suspended, terminated
-  terminatedAt        DateTime? /// When partnership was terminated
+  status       String    @default("active") /// active, suspended, terminated
+  terminatedAt DateTime? /// When partnership was terminated
 
   /// Volume discounts
-  volumeDiscounts     Json?    /// Array of {min_bookings: INT, commission_reduction: FLOAT}
+  volumeDiscounts Json? /// Array of {min_bookings: INT, commission_reduction: FLOAT}
 
   /// Performance metrics
-  maxCancellationRate Float    @default(20)  /// Max % cancellations allowed
-  minReviewScore      Float    @default(3.5) /// Min review score
+  maxCancellationRate Float @default(20) /// Max % cancellations allowed
+  minReviewScore      Float @default(3.5) /// Min review score
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   inventoryVisibilities InventoryVisibility[]
-  commissionRules     SupplierCommissionRule[]
+  commissionRules       SupplierCommissionRule[]
 
   @@unique([sourceSupplierStr, targetSupplierStr])
   @@index([sourceSupplierStr])
@@ -586,55 +600,55 @@ model SupplierPartnership {
 }
 
 model InventoryVisibility {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Original supplier (property owner)
-  supplierTenant      Tenant   @relation("inventory_supplier", fields: [supplierTenantId], references: [id], onDelete: Cascade)
-  supplierTenantId    String
+  supplierTenant   Tenant @relation("inventory_supplier", fields: [supplierTenantId], references: [id], onDelete: Cascade)
+  supplierTenantId String
 
   /// Property
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  propertyId          String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
 
   /// Room type
-  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  roomId              String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String
 
   /// Rate plan
-  ratePlan            RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
-  ratePlanId          String
+  ratePlan   RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  ratePlanId String
 
   /// Visibility level
-  visibilityLevel     String   @default("private") /// private, public, reserved
+  visibilityLevel String @default("private") /// private, public, reserved
 
   /// Public configuration
-  netRate             Float?   /// Base rate supplier gets (for public inventory)
-  maxMarkup           Float?   /// Max % others can add
-  commissionShare     Float?   /// % of net rate that goes to supplier
+  netRate         Float? /// Base rate supplier gets (for public inventory)
+  maxMarkup       Float? /// Max % others can add
+  commissionShare Float? /// % of net rate that goes to supplier
 
   /// Geographic visibility
-  allowedCountries    String[] @default([])  /// Empty = all countries
-  allowedCurrencies   String[] @default(["USD"])
+  allowedCountries  String[] @default([]) /// Empty = all countries
+  allowedCurrencies String[] @default(["USD"])
 
   /// Booking rules
-  minBookingWindow    Int      @default(0)
-  maxBookingWindow    Int      @default(365)
+  minBookingWindow Int @default(0)
+  maxBookingWindow Int @default(365)
 
   /// Reserved inventory
-  reservedFor         String?  /// Partner tenant ID if reserved
-  reservedAllocation  Int?     /// Units reserved for partner
+  reservedFor        String? /// Partner tenant ID if reserved
+  reservedAllocation Int? /// Units reserved for partner
 
   /// Inventory status
-  status              String   @default("active") /// active, paused, blocked
+  status String @default("active") /// active, paused, blocked
 
   /// Relationships
-  partnership         SupplierPartnership? @relation(fields: [partnershipId], references: [id])
-  partnershipId       String?
+  partnership   SupplierPartnership? @relation(fields: [partnershipId], references: [id])
+  partnershipId String?
 
   revenueTransactions RevenueTransaction[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([supplierTenantId, propertyId, roomId, ratePlanId, visibilityLevel])
   @@index([supplierTenantId])
@@ -644,83 +658,84 @@ model InventoryVisibility {
 }
 
 model SupplierCommissionRule {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Supplier this rule applies to
-  supplier            Tenant   @relation("commission_rules", fields: [supplierId], references: [id], onDelete: Cascade)
-  supplierId          String
+  supplier   Tenant @relation("commission_rules", fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId String
+
+  /// Optional: rule scoped to one partnership
+  partnership   SupplierPartnership? @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  partnershipId String?
 
   /// Conditions for this rule
-  country             String?  /// Specific country (null = all countries)
-  channel             String   @default("all") /// b2c, b2b, all
-  partnerTier         String   @default("standard") /// gold, silver, bronze, standard
-  season              String?  /// peak, shoulder, off (null = all)
-  minLengthOfStay     Int      @default(1)
-  maxLengthOfStay     Int?
+  country         String? /// Specific country (null = all countries)
+  channel         String  @default("all") /// b2c, b2b, all
+  partnerTier     String  @default("standard") /// gold, silver, bronze, standard
+  season          String? /// peak, shoulder, off (null = all)
+  minLengthOfStay Int     @default(1)
+  maxLengthOfStay Int?
 
   /// Commission values
-  baseCommissionPct   Float    /// Base commission %
+  baseCommissionPct     Float /// Base commission %
   variableCommissionPct Float  @default(0) /// Varies by demand
-  capAmount           Float?   /// Max commission amount
+  capAmount             Float? /// Max commission amount
 
   /// Rule priority (higher = evaluated first)
-  priority            Int      @default(0)
+  priority Int @default(0)
 
   /// Status
-  active              Boolean  @default(true)
+  active Boolean @default(true)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([supplierId])
+  @@index([partnershipId])
   @@index([active])
   @@index([priority])
 }
 
 model RevenueTransaction {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Booking reference
-  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  bookingId           String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId String
 
   /// Inventory reference
-  inventoryVisibility InventoryVisibility @relation(fields: [inventoryVisibilityId], references: [id])
-  inventoryVisibilityId String
+  inventoryVisibility   InventoryVisibility? @relation(fields: [inventoryVisibilityId], references: [id])
+  inventoryVisibilityId String?
 
   /// Transaction type
-  transactionType     String   @default("booking") /// booking, cancellation, refund, adjustment
-  transactionDate     DateTime @default(now())
+  transactionType String   @default("booking") /// booking, cancellation, refund, adjustment
+  transactionDate DateTime @default(now())
 
   /// Parties involved
-  originSupplier      String   /// Supplier ID (hotel owner)
-  sellingSupplier     String   /// Supplier ID (distributor/partner)
+  originSupplier  String /// Supplier ID (hotel owner)
+  sellingSupplier String /// Supplier ID (distributor/partner)
 
   /// Amounts
-  guestPaid           Float    /// Total amount guest paid
-  netToHotel          Float    /// Net amount to hotel (commission included)
-  markupAmount        Float    /// Markup added by distributor
+  guestPaid    Float /// Total amount guest paid
+  netToHotel   Float /// Net amount to hotel (commission included)
+  markupAmount Float /// Markup added by distributor
 
   /// Commission details
-  commissionToHotel   Float    /// Commission % paid to hotel
-  platformFee         Float    /// Platform processing fee
-  paymentGatewayFee   Float    /// Payment gateway fee
-  taxAmount           Float    /// Taxes collected
+  commissionToHotel Float /// Commission % paid to hotel
+  platformFee       Float /// Platform processing fee
+  paymentGatewayFee Float /// Payment gateway fee
+  taxAmount         Float /// Taxes collected
 
   /// Status
-  status              String   @default("pending") /// pending, settled, disputed, refunded
-  settlementDate      DateTime?
-
-  /// Settlement chain tracking (two-tier model)
-  sellerSettlementId      String?  /// Link to Tier 1 settlement (Platform → Distributor)
-  interSupplierSettlementId String? /// Link to Tier 2 settlement (Distributor → Hotel)
+  status         String    @default("pending") /// pending, settled, disputed, refunded
+  settlementDate DateTime?
 
   /// For disputes
-  disputeReason       String?
-  notes               String?
+  disputeReason String?
+  notes         String?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([bookingId])
   @@index([originSupplier])
@@ -728,40 +743,40 @@ model RevenueTransaction {
   @@index([transactionDate])
   @@index([status])
   @@index([settlementDate])
-  @@index([sellerSettlementId])
-  @@index([interSupplierSettlementId])
 }
 
 model SupplierInvoice {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Supplier being billed
-  supplier            Tenant   @relation("supplier_invoices", fields: [supplierId], references: [id], onDelete: Cascade)
-  supplierId          String
+  supplier   Tenant @relation("supplier_invoices", fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId String
 
   /// Invoice details
-  invoicePeriod       String   /// YYYY-MM format
-  invoiceNumber       String   @unique
-  invoiceDate         DateTime @default(now())
-  dueDate             DateTime
+  invoicePeriod String /// YYYY-MM format
+  invoiceNumber String   @unique
+  invoiceDate   DateTime @default(now())
+  dueDate       DateTime
 
   /// Summary
-  totalBookings       Int      @default(0)
-  grossAmount         Float    @default(0)
-  platformFee         Float    @default(0)
-  paymentGatewayFee   Float    @default(0)
-  netAmount           Float    @default(0)
+  totalBookings     Int   @default(0)
+  grossAmount       Float @default(0)
+  platformFee       Float @default(0)
+  paymentGatewayFee Float @default(0)
+  netAmount         Float @default(0)
 
   /// Payment
-  paymentMethod       String?  /// bank_transfer, stripe, wallet
-  status              String   @default("draft") /// draft, sent, paid, overdue
-  paidDate            DateTime?
+  paymentMethod    String? /// bank_transfer, stripe, wallet
+  status           String    @default("draft") /// draft, sent, paid, overdue
+  sentDate         DateTime?
+  paidDate         DateTime?
+  paymentReference String?
 
   /// Line items (JSON array for flexibility)
-  lineItems           Json?    /// Array of {booking_id, amount, type}
+  lineItems Json? /// Array of {booking_id, amount, type}
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([supplierId, invoicePeriod])
   @@index([supplierId])
@@ -769,64 +784,35 @@ model SupplierInvoice {
   @@index([status])
 }
 
-model Settlement {
-  id                  String   @id @default(cuid())
+model SupplierSettlement {
+  id String @id @default(cuid())
 
-  /// Supplier (recipient)
-  tenant              Tenant   @relation("tenant_settlements", fields: [tenantId], references: [id], onDelete: Cascade)
-  tenantId            String
-  supplierId          String?  /// Alias for tenantId (used in services)
+  /// Tenant that receives the money
+  tenant   Tenant @relation("supplier_settlements", fields: [tenantId], references: [id], onDelete: Restrict)
+  tenantId String
 
-  /// Two-tier settlement model
-  settlementType      String   @default("seller") /// seller (Platform→Distributor) | inter_supplier (Distributor→Hotel)
+  /// seller: platform pays the selling supplier
+  /// inter_supplier: selling supplier pays the inventory owner
+  settlementType String
+  payerTenantId  String? /// inter_supplier only (null = platform pays)
 
-  /// For inter_supplier settlements
-  payerTenantId       String?  /// Who pays the commission (distributor)
-  payeeTenantId       String?  /// Who receives commission (hotel owner)
+  bookingId String
+  amount    Float
+  currency  String @default("USD")
 
-  /// Settlement details
-  settlementPeriod    String   /// YYYY-MM format
-  settlementDate      DateTime @default(now())
+  status           String    @default("pending") /// pending, paid, overdue
+  dueDate          DateTime?
+  paidDate         DateTime?
+  paymentReference String?
 
-  /// Amounts
-  totalCredit         Float    @default(0)  /// Total bookings amount
-  totalDeductions     Float    @default(0) /// Fees, holds, etc.
-  netAmount           Float    @default(0) /// Final payout
-  totalAmount         Float?   /// Alternative amount field (for flexibility)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  /// Status
-  status              String   @default("pending") /// pending_seller | completed_seller | pending_inter_supplier | completed_inter_supplier | overdue | failed
-  paymentReference    String?  /// Bank transfer reference
-  paidDate            DateTime? /// When settlement was actually paid
-
-  /// Payment tracking
-  retryCount          Int      @default(0) /// Failed payment retry count
-
-  /// Booking reference (for two-tier model)
-  bookingReference    String?  /// Reference to booking that triggered settlement
-
-  /// Related transactions
-  transactionCount    Int      @default(0)
-
-  /// For inter_supplier: payment due date
-  dueDate             DateTime?
-
-  /// Payment deadline
-  invoiceId           String?
-
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@unique([tenantId, settlementPeriod])
-  @@index([tenantId])
-  @@index([status])
-  @@index([settlementDate])
-  @@index([settlementType])
-  @@index([payerTenantId])
-  @@index([payeeTenantId])
+  /// One settlement of each type per booking: prevents double payouts
+  @@unique([bookingId, settlementType])
+  @@index([tenantId, settlementType, status])
+  @@index([payerTenantId, status])
   @@index([dueDate])
-  @@index([bookingReference])
-  @@index([payerTenantId, payeeTenantId, status])
 }
 
 // ============================================================================
@@ -834,41 +820,41 @@ model Settlement {
 // ============================================================================
 
 model Room {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  type                String   /// Standard, Deluxe, Suite, etc.
-  code                String   /// auto-generated per property
-  quantity            Int      /// total number of this room type
+  type     String /// Standard, Deluxe, Suite, etc.
+  code     String /// auto-generated per property
+  quantity Int /// total number of this room type
 
-  area                Float?
-  areaUnit            String   @default("sqm") /// sqm, sqft
-  viewType            String?  /// Sea View, Garden View, etc.
-  applicableForROH    Boolean  @default(false)
-  description         String?
+  area             Float?
+  areaUnit         String  @default("sqm") /// sqm, sqft
+  viewType         String? /// Sea View, Garden View, etc.
+  applicableForROH Boolean @default(false)
+  description      String?
 
-  status              String   @default("active")
+  status String @default("active")
 
   // Occupancy rules
-  minAdults           Int      @default(1)
-  maxAdults           Int      @default(2)
-  maxOccupancy        Int      @default(2) /// including children
-  minThresholdPrice   Float?   /// minimum rate for adult occupancy
+  minAdults         Int    @default(1)
+  maxAdults         Int    @default(2)
+  maxOccupancy      Int    @default(2) /// including children
+  minThresholdPrice Float? /// minimum rate for adult occupancy
 
   // Policies
-  smokingPolicy       String?  /// smoking, non-smoking, both
-  extraBeds           String?  /// can it have extra beds? count allowed?
-  amenityCodes        String[] /// JSON array of amenity codes
+  smokingPolicy String? /// smoking, non-smoking, both
+  extraBeds     String? /// can it have extra beds? count allowed?
+  amenityCodes  String[] /// JSON array of amenity codes
 
-  photos              RoomPhoto[]
+  photos RoomPhoto[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  ratePlans           RatePlan[]
-  calendarRates       CalendarRate[]
+  ratePlans     RatePlan[]
+  calendarRates CalendarRate[]
 
   /// Phase 1: Inventory ledger
   inventoryLedger     InventoryLedger[]
@@ -883,45 +869,45 @@ model Room {
 }
 
 model RoomPhoto {
-  id                  String   @id @default(cuid())
-  roomId              String
-  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
-  url                 String   /// signed S3 URL
-  label               String?
+  url   String /// signed S3 URL
+  label String?
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([roomId])
 }
 
 model RatePlan {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  roomId              String?
-  room                Room?    @relation(fields: [roomId], references: [id])
+  roomId String?
+  room   Room?   @relation(fields: [roomId], references: [id])
 
-  code                String   /// auto-generated
-  name                String
-  boardType           String   /// BB, HB, FB, or custom
+  code      String /// auto-generated
+  name      String
+  boardType String /// BB, HB, FB, or custom
 
-  status              String   @default("active")
-  comments            String?
+  status   String  @default("active")
+  comments String?
 
-  taxInclusive        Boolean  @default(true)
-  minLengthOfStay     Int      @default(1)
-  maxLengthOfStay     Int?
+  taxInclusive    Boolean @default(true)
+  minLengthOfStay Int     @default(1)
+  maxLengthOfStay Int?
 
   /// Phase 1: Blackout periods (JSON array: [{startDate, endDate, reason}])
-  blackoutRanges      String?  @db.Text
+  blackoutRanges String? @db.Text
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  calendarRates       CalendarRate[]
+  calendarRates CalendarRate[]
 
   /// Phase 1: Inventory ledger
   inventoryLedger     InventoryLedger[]
@@ -936,23 +922,23 @@ model RatePlan {
 }
 
 model CalendarRate {
-  id                  String   @id @default(cuid())
-  propertyId          String   /// denormalized for indexing
+  id         String @id @default(cuid())
+  propertyId String /// denormalized for indexing
 
-  roomId              String
-  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
-  ratePlanId          String
-  ratePlan            RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  ratePlanId String
+  ratePlan   RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
 
-  date                DateTime /// check-in date
-  netRate             Float    /// the base, secret, never-shown rate
+  date    DateTime /// check-in date
+  netRate Float /// the base, secret, never-shown rate
 
-  availability        Int      @default(999) /// rooms available this date
-  stopSell            Boolean  @default(false)
+  availability Int     @default(999) /// rooms available this date
+  stopSell     Boolean @default(false)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([roomId, ratePlanId, date])
   @@index([propertyId, date])
@@ -964,24 +950,24 @@ model CalendarRate {
 // ============================================================================
 
 model CancellationPolicy {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  bookingType         String   /// Refundable, Non-Refundable
-  status              String   @default("active")
-  templateId          String?  /// FK to CancellationPolicyTemplate if based on template
-  templateName        String?
+  bookingType  String /// Refundable, Non-Refundable
+  status       String  @default("active")
+  templateId   String? /// FK to CancellationPolicyTemplate if based on template
+  templateName String?
 
-  customName          String?  /// if custom, the custom name
-  isDefault           Boolean  @default(false)
+  customName String? /// if custom, the custom name
+  isDefault  Boolean @default(false)
 
   applicableStartDate DateTime?
   applicableEndDate   DateTime?
-  applicableDateType  String?  /// by_booking_date, by_stay_date
+  applicableDateType  String? /// by_booking_date, by_stay_date
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   tiers               CancellationPolicyTier[]
@@ -993,18 +979,18 @@ model CancellationPolicy {
 }
 
 model CancellationPolicyTier {
-  id                  String   @id @default(cuid())
-  policyId            String
-  policy              CancellationPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
-  templateTierId      String?  /// if from template, reference original
+  id             String             @id @default(cuid())
+  policyId       String
+  policy         CancellationPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  templateTierId String? /// if from template, reference original
 
-  refundType          String   /// Full Refund, Partial Refund, No Refund
-  daysBeforeArrival   Int      /// cancellation window
-  arrivalTime         String?  /// optional time constraint
-  chargeType          String   /// Percentage, Fixed
-  chargeValue         Float    /// % or fixed amount
+  refundType        String /// Full Refund, Partial Refund, No Refund
+  daysBeforeArrival Int /// cancellation window
+  arrivalTime       String? /// optional time constraint
+  chargeType        String /// Percentage, Fixed
+  chargeValue       Float /// % or fixed amount
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([policyId])
 }
@@ -1014,26 +1000,26 @@ model CancellationPolicyTier {
 // ============================================================================
 
 model ChargeRule {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  kind                String   /// fee, surcharge, supplement
-  name                String
-  applicability       String   @default("room") /// room, rate_plan
+  kind          String /// fee, surcharge, supplement
+  name          String
+  applicability String @default("room") /// room, rate_plan
 
-  appliedToRoomTypes  String[] /// codes, JSON array
-  appliedToRatePlans  String[] /// codes, JSON array
+  appliedToRoomTypes String[] /// codes, JSON array
+  appliedToRatePlans String[] /// codes, JSON array
 
-  amountType          String   /// flat, percentage
-  value               Float    /// amount or percentage
+  amountType String /// flat, percentage
+  value      Float /// amount or percentage
 
-  dateRangeStart      DateTime?
-  dateRangeEnd        DateTime?
-  mandatory           Boolean  @default(false)
+  dateRangeStart DateTime?
+  dateRangeEnd   DateTime?
+  mandatory      Boolean   @default(false)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([propertyId, kind])
 }
@@ -1043,41 +1029,41 @@ model ChargeRule {
 // ============================================================================
 
 model Promotion {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  type                String   /// basic, long_stay, early_bird, last_minute, extra_inclusion, performance_linked
-  name                String
-  code                String   @unique
+  type String /// basic, long_stay, early_bird, last_minute, extra_inclusion, performance_linked
+  name String
+  code String @unique
 
-  status              String   @default("active")
-  description         String?
+  status      String  @default("active")
+  description String?
 
   /// Applicability & Trigger
-  roomTypes           String[] /// JSON array of room type codes
-  ratePlans           String[] /// JSON array of rate plan codes
+  roomTypes String[] /// JSON array of room type codes
+  ratePlans String[] /// JSON array of rate plan codes
 
-  dateStart           DateTime
-  dateEnd             DateTime
+  dateStart DateTime
+  dateEnd   DateTime
 
-  triggerCondition    String   @db.Text /// JSON: {"type": "...", ...}
-  discountType        String   /// percentage, fixed, free_nights
-  discountValue       Float
+  triggerCondition String @db.Text /// JSON: {"type": "...", ...}
+  discountType     String /// percentage, fixed, free_nights
+  discountValue    Float
 
-  applicableToLOS     Int?     /// for long stay: min LOS to trigger
+  applicableToLOS Int? /// for long stay: min LOS to trigger
 
   /// for extra inclusion
-  includeExtraIds     String[] /// JSON array of charge rule IDs
+  includeExtraIds String[] /// JSON array of charge rule IDs
 
   /// for performance linked
-  volumeThresholds    String?  /// JSON: [{nights: 10, discount: 5}, {nights: 20, discount: 10}]
+  volumeThresholds String? /// JSON: [{nights: 10, discount: 5}, {nights: 20, discount: 10}]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  rules               PromotionRule[]
+  rules PromotionRule[]
 
   @@index([propertyId])
   @@index([status])
@@ -1085,12 +1071,12 @@ model Promotion {
 }
 
 model PromotionRule {
-  id                  String   @id @default(cuid())
-  promotionId         String
-  promotion           Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  promotionId String
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
 
-  priority            Int      @default(0)
-  ruleJson            String   @db.Text /// serialized rule logic
+  priority Int    @default(0)
+  ruleJson String @db.Text /// serialized rule logic
 
   @@index([promotionId, priority])
 }
@@ -1100,61 +1086,61 @@ model PromotionRule {
 // ============================================================================
 
 model Supplier {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  name                String
-  accountingName      String?
-  type                String   /// Source, Channel Manager, GDS, etc.
-  category            String   /// Direct Connect, API, Manual, etc.
+  name           String
+  accountingName String?
+  type           String /// Source, Channel Manager, GDS, etc.
+  category       String /// Direct Connect, API, Manual, etc.
 
-  contractFrom        DateTime?
-  contractTo          DateTime?
-  isContractSigned    Boolean  @default(false)
+  contractFrom     DateTime?
+  contractTo       DateTime?
+  isContractSigned Boolean   @default(false)
 
-  logoUrl             String?
-  status              String   @default("active")
+  logoUrl String?
+  status  String  @default("active")
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  documents           SupplierDocument[]
-  offices             SupplierOffice[]
-  properties          Property[] @relation("property_suppliers")
+  documents  SupplierDocument[]
+  offices    SupplierOffice[]
+  properties Property[]         @relation("property_suppliers")
 
   @@unique([tenantId, name])
   @@index([tenantId])
 }
 
 model SupplierDocument {
-  id                  String   @id @default(cuid())
-  supplierId          String
-  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
-  documentName        String
-  documentUrl         String   /// signed S3 URL
+  documentName String
+  documentUrl  String /// signed S3 URL
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([supplierId])
 }
 
 model SupplierOffice {
-  id                  String   @id @default(cuid())
-  supplierId          String
-  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
-  officeName          String
-  address             String?
-  city                String?
-  country             String?
-  contactName         String?
-  phone               String?
-  email               String?
+  officeName  String
+  address     String?
+  city        String?
+  country     String?
+  contactName String?
+  phone       String?
+  email       String?
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([supplierId])
 }
@@ -1164,32 +1150,32 @@ model SupplierOffice {
 // ============================================================================
 
 model PropertyConfiguration {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation("tenant_property_config", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("tenant_property_config", fields: [tenantId], references: [id], onDelete: Cascade)
 
-  propertyId          String
-  property            Property @relation("property_config", fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation("property_config", fields: [propertyId], references: [id], onDelete: Cascade)
 
   // Tenant-specific configuration
-  amenities           String[] /// JSON array
-  cancellationPolicy  String?
-  otherPolicies       String?
+  amenities          String[] /// JSON array
+  cancellationPolicy String?
+  otherPolicies      String?
 
   // Finance details for this tenant's use of this property
-  financeManager      Json?    /// {name, phone, email}
-  salesperson         Json?    /// {name, phone, email}
-  bankDetails         Json?    /// {bankName, accountNumber, ifscCode, beneficiaryName}
-  moneyTransfer       String?
-  contractStartDate   DateTime?
-  contractEndDate     DateTime?
-  contractUrl         String?
+  financeManager    Json? /// {name, phone, email}
+  salesperson       Json? /// {name, phone, email}
+  bankDetails       Json? /// {bankName, accountNumber, ifscCode, beneficiaryName}
+  moneyTransfer     String?
+  contractStartDate DateTime?
+  contractEndDate   DateTime?
+  contractUrl       String?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  rates               PropertyRate[]
+  rates PropertyRate[]
 
   @@unique([tenantId, propertyId])
   @@index([tenantId])
@@ -1197,25 +1183,25 @@ model PropertyConfiguration {
 }
 
 model PropertyRate {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation("tenant_rates", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("tenant_rates", fields: [tenantId], references: [id], onDelete: Cascade)
 
-  propertyId          String
-  property            Property @relation("property_rates", fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation("property_rates", fields: [propertyId], references: [id], onDelete: Cascade)
 
-  configId            String
-  config              PropertyConfiguration @relation(fields: [configId], references: [id], onDelete: Cascade)
+  configId String
+  config   PropertyConfiguration @relation(fields: [configId], references: [id], onDelete: Cascade)
 
-  roomType            String   /// Single, Double, Suite, etc.
-  rateType            String   /// domestic, international
-  startDate           DateTime
-  endDate             DateTime
-  weekdays            String[] /// MON, TUE, WED, etc. - JSON array
-  rate                Float    /// per night rate
+  roomType  String /// Single, Double, Suite, etc.
+  rateType  String /// domestic, international
+  startDate DateTime
+  endDate   DateTime
+  weekdays  String[] /// MON, TUE, WED, etc. - JSON array
+  rate      Float /// per night rate
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, propertyId])
   @@index([startDate, endDate])
@@ -1226,70 +1212,70 @@ model PropertyRate {
 // ============================================================================
 
 model Booking {
-  id                  String   @id @default(cuid())
-  propertyId          String
-  property            Property @relation("property_bookings", fields: [propertyId], references: [id])
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation("property_bookings", fields: [propertyId], references: [id])
 
   // Tenant Relations (one of these will be set depending on booking type)
-  tenantId            String
-  tenant              Tenant   @relation("tenant_bookings", fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation("tenant_bookings", fields: [tenantId], references: [id], onDelete: Cascade)
 
   // B2B Agent Tracking
-  b2bAgentId          String?
-  b2bAgent            B2BAgent? @relation("b2b_agent_bookings", fields: [b2bAgentId], references: [id])
+  b2bAgentId String?
+  b2bAgent   B2BAgent? @relation("b2b_agent_bookings", fields: [b2bAgentId], references: [id])
 
   // B2B/B2C specific fields
-  bookingCode         String?  /// Unique booking reference
-  bookingType         String?  /// b2b, b2c, walk_in
-  sourceTenantId      String?  /// For B2B reseller bookings - original property owner
-  resellerTenantId    String?  /// For B2B reseller bookings - reseller tenant
+  bookingCode      String? /// Unique booking reference
+  bookingType      String? /// b2b, b2c, walk_in
+  sourceTenantId   String? /// For B2B reseller bookings - original property owner
+  resellerTenantId String? /// For B2B reseller bookings - reseller tenant
 
   // Confirmation Numbers
-  systemConfirmationNo String @unique /// Auto-generated: CONF-YYYYMMDD-XXXXX
-  hotelConfirmationNo String?         /// From hotel system
+  systemConfirmationNo String  @unique /// Auto-generated: CONF-YYYYMMDD-XXXXX
+  hotelConfirmationNo  String? /// From hotel system
 
   // Guest Information
-  guestName           String
-  guestEmail          String
-  guestPhone          String?
+  guestName  String
+  guestEmail String
+  guestPhone String?
 
   // Booking Details
-  roomType            String
-  roomTypeCode        String?  /// Code for specific room type
-  ratePlanCode        String?  /// Code for specific rate plan
-  checkInDate         DateTime
-  checkOutDate        DateTime
-  numberOfNights      Int
-  numberOfGuests      Int
-  adults              Int?     /// B2B specific
-  children            Int?     /// B2B specific
-  rateType            String   /// domestic, international
-  rateAmount          Float    /// per night
-  totalAmount         Float
-  currency            String   @default("USD")
+  roomType       String
+  roomTypeCode   String? /// Code for specific room type
+  ratePlanCode   String? /// Code for specific rate plan
+  checkInDate    DateTime
+  checkOutDate   DateTime
+  numberOfNights Int
+  numberOfGuests Int
+  adults         Int? /// B2B specific
+  children       Int? /// B2B specific
+  rateType       String /// domestic, international
+  rateAmount     Float /// per night
+  totalAmount    Float
+  currency       String   @default("USD")
 
   // B2B Rate tracking
-  netRate             Float?   /// Before markup
-  subtotal            Float?   /// For B2B tracking
+  netRate  Float? /// Before markup
+  subtotal Float? /// For B2B tracking
 
   // Booking Source & Status
-  source              String   /// b2b, b2c, walk_in
-  status              String   @default("pending") /// pending, confirmed, checked_in, checked_out, cancelled
-  cancelledAt         DateTime?
+  source      String /// b2b, b2c, walk_in
+  status      String    @default("pending") /// pending, confirmed, checked_in, checked_out, cancelled
+  cancelledAt DateTime?
 
   // Special Requests
-  specialRequests     String?
+  specialRequests String?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  confirmedAt         DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  confirmedAt DateTime?
 
   // Relations
-  voucher             BookingVoucher?
-  commission          Commission?
-  items               BookingItem[]
-  rateBreakdown       RateBreakdown?
-  payment             Payment?
+  voucher       BookingVoucher?
+  commission    Commission?
+  items         BookingItem[]
+  rateBreakdown RateBreakdown?
+  payment       Payment?
 
   // Multi-supplier relations
   revenueTransactions RevenueTransaction[]
@@ -1303,49 +1289,49 @@ model Booking {
 }
 
 model BookingVoucher {
-  id                  String   @id @default(cuid())
-  bookingId           String   @unique
-  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   // Voucher Details
-  voucherNo           String   @unique /// Generated from booking confirmation
-  hotelName           String
-  hotelAddress        String
-  hotelPhone          String?
-  hotelEmail          String?
-  hotelWebsite        String?
+  voucherNo    String  @unique /// Generated from booking confirmation
+  hotelName    String
+  hotelAddress String
+  hotelPhone   String?
+  hotelEmail   String?
+  hotelWebsite String?
 
   // Guest Details
-  guestName           String
-  guestEmail          String
-  guestPhone          String?
+  guestName  String
+  guestEmail String
+  guestPhone String?
 
   // Stay Details
-  checkInDate         String
-  checkOutDate        String
-  numberOfNights      Int
-  roomType            String
-  rate                String   /// per night
+  checkInDate    String
+  checkOutDate   String
+  numberOfNights Int
+  roomType       String
+  rate           String /// per night
 
   // Total
-  subtotal            Float
-  tax                 Float
-  total               Float
-  currency            String
+  subtotal Float
+  tax      Float
+  total    Float
+  currency String
 
   // Branding
-  hotelLogo           String?  /// Logo URL
-  primaryColor        String?  /// Hex color from tenant
-  secondaryColor      String?
-  tenantName          String?  /// Issuing organization
+  hotelLogo      String? /// Logo URL
+  primaryColor   String? /// Hex color from tenant
+  secondaryColor String?
+  tenantName     String? /// Issuing organization
 
   // Voucher Status
-  voucherUrl          String?  /// PDF or HTML URL
-  generatedAt         DateTime
-  validFrom           DateTime
-  validUntil          DateTime
+  voucherUrl  String? /// PDF or HTML URL
+  generatedAt DateTime
+  validFrom   DateTime
+  validUntil  DateTime
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([bookingId])
 }
@@ -1355,65 +1341,65 @@ model BookingVoucher {
 // ============================================================================
 
 model TenantRole {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation("tenant_roles", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("tenant_roles", fields: [tenantId], references: [id], onDelete: Cascade)
 
-  name                String   /// Admin, MidOffice, FrontOffice, Finance, Sales
-  description         String?
-  permissions         String[] /// JSON array: ["hotel.view", "booking.create", etc.]
-  level               Int      /// 1=Admin, 2=MidOffice, 3=Finance/Sales, 4=FrontOffice, 5=B2BAgent
+  name        String /// Admin, MidOffice, FrontOffice, Finance, Sales
+  description String?
+  permissions String[] /// JSON array: ["hotel.view", "booking.create", etc.]
+  level       Int /// 1=Admin, 2=MidOffice, 3=Finance/Sales, 4=FrontOffice, 5=B2BAgent
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  users               TenantUser[] @relation("user_roles")
+  users TenantUser[] @relation("user_roles")
 
   @@unique([tenantId, name])
   @@index([tenantId])
 }
 
 model B2BAgent {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation("tenant_b2b_agents", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("tenant_b2b_agents", fields: [tenantId], references: [id], onDelete: Cascade)
 
   // Agent Details
-  name                String   /// Agent company/name
-  email               String
-  phone               String?
-  website             String?
-  address             String?
-  city                String?
-  country             String?
+  name    String /// Agent company/name
+  email   String
+  phone   String?
+  website String?
+  address String?
+  city    String?
+  country String?
 
   // Branding
-  logoUrl             String?  /// Agent's own logo
-  primaryColor        String?  @default("#3b82f6")
-  secondaryColor      String?  @default("#60a5fa")
+  logoUrl        String? /// Agent's own logo
+  primaryColor   String? @default("#3b82f6")
+  secondaryColor String? @default("#60a5fa")
 
   // Commission
-  commissionRate      Float    @default(10) /// percentage
-  commissionType      String   @default("percentage") /// percentage or fixed
+  commissionRate Float  @default(10) /// percentage
+  commissionType String @default("percentage") /// percentage or fixed
 
   // Status & Verification
-  status              String   @default("active") /// active, inactive, suspended
-  kycVerified         Boolean  @default(false)
-  kycDocuments        String[] /// JSON array
+  status       String   @default("active") /// active, inactive, suspended
+  kycVerified  Boolean  @default(false)
+  kycDocuments String[] /// JSON array
 
   // Contact Details
-  contactPerson       String?
-  contactPhone        String?
-  contactEmail        String?
+  contactPerson String?
+  contactPhone  String?
+  contactEmail  String?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  users               B2BAgentUser[]
-  bookings            Booking[] @relation("b2b_agent_bookings")
-  commissions         Commission[]
-  settlements         Settlement[] @relation("agent_settlements")
+  users       B2BAgentUser[]
+  bookings    Booking[]      @relation("b2b_agent_bookings")
+  commissions Commission[]
+  settlements Settlement[]   @relation("agent_settlements")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1421,21 +1407,21 @@ model B2BAgent {
 }
 
 model B2BAgentUser {
-  id                  String   @id @default(cuid())
-  agentId             String
-  agent               B2BAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  id      String   @id @default(cuid())
+  agentId String
+  agent   B2BAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  email               String
-  password            String   /// hashed
-  firstName           String
-  lastName            String
-  role                String   @default("user") /// admin, user
+  email     String
+  password  String /// hashed
+  firstName String
+  lastName  String
+  role      String @default("user") /// admin, user
 
-  status              String   @default("active")
-  lastLogin           DateTime?
+  status    String    @default("active")
+  lastLogin DateTime?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([agentId, email])
   @@index([agentId])
@@ -1446,32 +1432,32 @@ model B2BAgentUser {
 // ============================================================================
 
 model Commission {
-  id                  String   @id @default(cuid())
-  bookingId           String   @unique
-  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  b2bAgentId          String?
-  b2bAgent            B2BAgent? @relation(fields: [b2bAgentId], references: [id])
+  b2bAgentId String?
+  b2bAgent   B2BAgent? @relation(fields: [b2bAgentId], references: [id])
 
-  tenantId            String
-  tenant              Tenant   @relation("tenant_commissions", fields: [tenantId], references: [id])
+  tenantId String
+  tenant   Tenant @relation("tenant_commissions", fields: [tenantId], references: [id])
 
   // Commission Details
-  bookingAmount       Float
-  commissionRate      Float    /// percentage
-  commissionAmount    Float    /// calculated
-  commissionType      String   /// percentage, fixed
+  bookingAmount    Float
+  commissionRate   Float /// percentage
+  commissionAmount Float /// calculated
+  commissionType   String /// percentage, fixed
 
   // Status
-  status              String   @default("pending") /// pending, approved, paid
-  paidAt              DateTime?
-  paidAmount          Float?
+  status     String    @default("pending") /// pending, approved, paid
+  paidAt     DateTime?
+  paidAmount Float?
 
   // Breakdown
-  breakdown           Json?    /// {hotelShare, agentShare, platformShare}
+  breakdown Json? /// {hotelShare, agentShare, platformShare}
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, b2bAgentId])
   @@index([bookingId])
@@ -1479,33 +1465,33 @@ model Commission {
 }
 
 model Settlement {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation("tenant_settlements", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("tenant_settlements", fields: [tenantId], references: [id], onDelete: Cascade)
 
-  b2bAgentId          String?
-  b2bAgent            B2BAgent? @relation("agent_settlements", fields: [b2bAgentId], references: [id])
+  b2bAgentId String?
+  b2bAgent   B2BAgent? @relation("agent_settlements", fields: [b2bAgentId], references: [id])
 
   // Settlement Period
-  startDate           DateTime
-  endDate             DateTime
-  period              String   /// "2026-07" (YYYY-MM)
+  startDate DateTime
+  endDate   DateTime
+  period    String /// "2026-07" (YYYY-MM)
 
   // Amounts
-  totalBookingAmount  Float
-  totalCommission     Float
-  totalPayable        Float
-  totalPaid           Float
-  balance             Float
+  totalBookingAmount Float
+  totalCommission    Float
+  totalPayable       Float
+  totalPaid          Float
+  balance            Float
 
   // Status
-  status              String   @default("pending") /// pending, approved, paid, disputed
-  approvedAt          DateTime?
-  paidAt              DateTime?
-  remarks             String?
+  status     String    @default("pending") /// pending, approved, paid, disputed
+  approvedAt DateTime?
+  paidAt     DateTime?
+  remarks    String?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, b2bAgentId, period])
   @@index([tenantId])
@@ -1517,22 +1503,22 @@ model Settlement {
 // ============================================================================
 
 model B2BUser {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation("b2b_users", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("b2b_users", fields: [tenantId], references: [id], onDelete: Cascade)
 
-  email               String
-  password            String   /// hashed
-  firstName           String
-  lastName            String
-  companyName         String?
-  companyPhone        String?
+  email        String
+  password     String /// hashed
+  firstName    String
+  lastName     String
+  companyName  String?
+  companyPhone String?
 
-  role                String   @default("user") /// admin, user
-  status              String   @default("active")
+  role   String @default("user") /// admin, user
+  status String @default("active")
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1543,27 +1529,27 @@ model B2BUser {
 // ============================================================================
 
 model RateMarkup {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  channel             String   /// b2b, b2c
+  channel String /// b2b, b2c
 
   /// Optional scoping
-  sourceTenantId      String?  /// for b2b: only when reselling this specific tenant's inventory
-  roomTypeCode        String?  /// applies to this room type
+  sourceTenantId String? /// for b2b: only when reselling this specific tenant's inventory
+  roomTypeCode   String? /// applies to this room type
 
-  dateStart           DateTime?
-  dateEnd             DateTime?
-  minLOS              Int?
+  dateStart DateTime?
+  dateEnd   DateTime?
+  minLOS    Int?
 
   /// Markup rule
-  type                String   /// percentage, fixed
-  value               Float
-  priority            Int      @default(0) /// higher = more specific, wins in conflict
+  type     String /// percentage, fixed
+  value    Float
+  priority Int    @default(0) /// higher = more specific, wins in conflict
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, channel, sourceTenantId, roomTypeCode, dateStart, dateEnd, minLOS])
   @@index([tenantId, channel])
@@ -1571,20 +1557,20 @@ model RateMarkup {
 }
 
 model DistributionGrant {
-  id                  String   @id @default(cuid())
-  sourceTenantId      String
-  sourceTenant        Tenant   @relation("source_tenant", fields: [sourceTenantId], references: [id], onDelete: Cascade)
+  id             String @id @default(cuid())
+  sourceTenantId String
+  sourceTenant   Tenant @relation("source_tenant", fields: [sourceTenantId], references: [id], onDelete: Cascade)
 
-  targetTenantId      String
-  targetTenant        Tenant   @relation("target_tenant", fields: [targetTenantId], references: [id], onDelete: Cascade)
+  targetTenantId String
+  targetTenant   Tenant @relation("target_tenant", fields: [targetTenantId], references: [id], onDelete: Cascade)
 
-  status              String   @default("pending") /// pending, approved, rejected
+  status String @default("pending") /// pending, approved, rejected
 
   /// Optional bilateral override
-  customB2BMargin     Int?     /// % margin override just for this grant
+  customB2BMargin Int? /// % margin override just for this grant
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([sourceTenantId, targetTenantId])
   @@index([sourceTenantId])
@@ -1597,66 +1583,66 @@ model DistributionGrant {
 // ============================================================================
 
 model BookingItem {
-  id                  String   @id @default(cuid())
-  bookingId           String
-  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  itemType            String   /// room, fee, surcharge, tax, discount
-  description         String
-  quantity            Int      @default(1)
-  unitPrice           Float
-  total               Float    /// quantity * unitPrice
+  itemType    String /// room, fee, surcharge, tax, discount
+  description String
+  quantity    Int    @default(1)
+  unitPrice   Float
+  total       Float /// quantity * unitPrice
 
   @@index([bookingId])
 }
 
 model RateBreakdown {
-  id                  String   @id @default(cuid())
-  bookingId           String   @unique
-  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  sourceTenantId      String   /// base data for audit
-  resellerTenantId    String?
+  sourceTenantId   String /// base data for audit
+  resellerTenantId String?
 
-  netRate             Float    /// per night, secret
-  b2bMarginApplied    Float?   /// if B2B, markup applied by source
-  marketplaceRate     Float?   /// netRate + b2bMarginApplied
-  resellerMarkup      Float?   /// reseller's own markup
+  netRate          Float /// per night, secret
+  b2bMarginApplied Float? /// if B2B, markup applied by source
+  marketplaceRate  Float? /// netRate + b2bMarginApplied
+  resellerMarkup   Float? /// reseller's own markup
 
-  b2cMarkupApplied    Float?   /// if B2C, direct markup applied
+  b2cMarkupApplied Float? /// if B2C, direct markup applied
 
-  taxTotal            Float
-  feesTotal           Float
-  surchargesTotal     Float
+  taxTotal        Float
+  feesTotal       Float
+  surchargesTotal Float
 
-  finalRate           Float    /// the final sell rate
+  finalRate Float /// the final sell rate
 
   /// JSON audit trail
-  markupHistory       String   @db.Text /// [{applied_by: tenant_id, type: "b2b" | "b2c", value, timestamp}]
+  markupHistory String @db.Text /// [{applied_by: tenant_id, type: "b2b" | "b2c", value, timestamp}]
 
   @@index([sourceTenantId])
   @@index([resellerTenantId])
 }
 
 model Payment {
-  id                  String   @id @default(cuid())
-  bookingId           String   @unique
-  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  status              String   @default("pending") /// pending, succeeded, failed
-  method              String   @default("stripe") /// stripe, bank_transfer, etc.
+  status String @default("pending") /// pending, succeeded, failed
+  method String @default("stripe") /// stripe, bank_transfer, etc.
 
-  stripePaymentIntentId String?
+  stripePaymentIntentId  String?
   stripeConnectAccountId String? /// the tenant's stripe account ID
 
-  amount              Float
-  currency            String
+  amount   Float
+  currency String
 
-  platformCommission  Float    /// platform's take
-  tenantCredit        Float    /// amount credited to tenant
+  platformCommission Float /// platform's take
+  tenantCredit       Float /// amount credited to tenant
 
-  createdAt           DateTime @default(now())
-  completedAt         DateTime?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
 
   @@index([bookingId])
   @@index([status])
@@ -1668,22 +1654,22 @@ model Payment {
 
 // 1. ENTITY APPROVAL PATTERN (Reusable for Tenant & B2B Agent)
 model EntityApproval {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  entityType          String   /// Tenant, B2BAgent
-  entityId            String
+  entityType String /// Tenant, B2BAgent
+  entityId   String
 
-  status              String   @default("pending") /// pending, confirmed, suspended
+  status String @default("pending") /// pending, confirmed, suspended
 
-  approverUserId      String?  /// who approved/rejected
-  approverEmail       String?
-  approverName        String?
+  approverUserId String? /// who approved/rejected
+  approverEmail  String?
+  approverName   String?
 
-  approvalNotes       String?  @db.Text
-  actionTakenAt       DateTime?
+  approvalNotes String?   @db.Text
+  actionTakenAt DateTime?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([entityType, entityId])
   @@index([entityType])
@@ -1693,28 +1679,28 @@ model EntityApproval {
 
 // 2. INVENTORY LEDGER (Append-only, foundational for booking consistency)
 model InventoryLedger {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  roomId              String
-  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
-  ratePlanId          String
-  ratePlan            RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  ratePlanId String
+  ratePlan   RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
 
-  date                DateTime /// The date this availability applies to
+  date DateTime /// The date this availability applies to
 
-  delta               Int      /// Positive or negative availability change
-  reason              String   /// manual_allocation, booking, cancellation_release, amendment, blackout_block
+  delta  Int /// Positive or negative availability change
+  reason String /// manual_allocation, booking, cancellation_release, amendment, blackout_block
 
-  actorUserId         String?  /// User who triggered this change
-  actorEmail          String?
+  actorUserId String? /// User who triggered this change
+  actorEmail  String?
 
-  bookingId           String?  /// If reason=booking/cancellation/amendment, link to booking
+  bookingId String? /// If reason=booking/cancellation/amendment, link to booking
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   /// Immutable: this row is never updated or deleted
 
@@ -1726,22 +1712,22 @@ model InventoryLedger {
 
 // 3. CURRENT AVAILABILITY (Materialized view for fast reads, updated transactionally with ledger)
 model CurrentAvailability {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  roomId              String
-  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
-  ratePlanId          String
-  ratePlan            RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  ratePlanId String
+  ratePlan   RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
 
-  date                DateTime
+  date DateTime
 
-  available           Int      /// Sum of all delta in InventoryLedger for this (property, room, rate, date)
+  available Int /// Sum of all delta in InventoryLedger for this (property, room, rate, date)
 
-  lastUpdatedAt       DateTime @updatedAt
+  lastUpdatedAt DateTime @updatedAt
 
   @@unique([propertyId, roomId, ratePlanId, date])
   @@index([propertyId, roomId, ratePlanId, date])
@@ -1749,23 +1735,23 @@ model CurrentAvailability {
 
 // 4. FX RATES (Manual + API-driven)
 model FXRate {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  baseCurrencyId      String
-  baseCurrency        Currency @relation("fx_base", fields: [baseCurrencyId], references: [id], onDelete: Cascade)
+  baseCurrencyId String
+  baseCurrency   Currency @relation("fx_base", fields: [baseCurrencyId], references: [id], onDelete: Cascade)
 
-  quoteCurrencyId     String
-  quoteCurrency       Currency @relation("fx_quote", fields: [quoteCurrencyId], references: [id], onDelete: Cascade)
+  quoteCurrencyId String
+  quoteCurrency   Currency @relation("fx_quote", fields: [quoteCurrencyId], references: [id], onDelete: Cascade)
 
-  rate                Decimal  @db.Decimal(18, 8) /// 1 base = rate quote
-  source              String   /// manual, api
-  apiProvider         String?  /// e.g., "forex_api", "exchangerate", etc.
+  rate        Decimal @db.Decimal(18, 8) /// 1 base = rate quote
+  source      String /// manual, api
+  apiProvider String? /// e.g., "forex_api", "exchangerate", etc.
 
-  updatedAt           DateTime @updatedAt
-  createdAt           DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 
   // Relations
-  history             FXRateHistory[]
+  history FXRateHistory[]
 
   @@unique([baseCurrencyId, quoteCurrencyId])
   @@index([updatedAt])
@@ -1773,22 +1759,22 @@ model FXRate {
 
 // 4.1 FX RATE HISTORY (Append-only audit trail for rate changes)
 model FXRateHistory {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  fxRateId            String
-  fxRate              FXRate   @relation(fields: [fxRateId], references: [id], onDelete: Cascade)
+  fxRateId String
+  fxRate   FXRate @relation(fields: [fxRateId], references: [id], onDelete: Cascade)
 
-  baseCurrencyId      String
-  quoteCurrencyId     String
+  baseCurrencyId  String
+  quoteCurrencyId String
 
-  rate                Decimal  @db.Decimal(18, 8) /// 1 base = rate quote
-  source              String   /// manual, api
-  apiProvider         String?
+  rate        Decimal @db.Decimal(18, 8) /// 1 base = rate quote
+  source      String /// manual, api
+  apiProvider String?
 
-  updatedBy           String?  /// User ID who made manual update
-  updateReason        String?  /// "manual_update", "api_sync", "correction"
+  updatedBy    String? /// User ID who made manual update
+  updateReason String? /// "manual_update", "api_sync", "correction"
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([fxRateId, createdAt])
   @@index([createdAt])

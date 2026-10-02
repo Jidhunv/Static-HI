@@ -110,7 +110,7 @@ export class InventoryFilteringService {
 
       // Calculate if profit margin meets minimum
       const grossMargin = inv.netRate * (inv.maxMarkup / 100);
-      const commissionCost = inv.netRate * (inv.commissionShare / 100);
+      const commissionCost = inv.netRate * ((inv.commissionShare ?? 0) / 100);
       const netProfit = grossMargin - commissionCost;
       const profitMarginPct = (netProfit / inv.netRate) * 100;
 

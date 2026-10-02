@@ -1,18 +1,28 @@
-# Multi-Supplier Distribution API Documentation
+# Multi-Supplier Distribution API
 
 ## Overview
-The Multi-Supplier API enables hotels (suppliers) to publish inventory for other suppliers (distributors) to sell on their own platforms. This creates a B2B distribution network with automatic commission calculations, billing, and settlement.
+Lets a supplier (inventory owner) publish rate plans for other suppliers (distributors) to resell, manage
+partnerships and commission rules, and produce monthly invoices.
+
+**Status:** these endpoints compile and the server maps them, but they have not been exercised end to end and
+have no automated tests. They are not wired into the booking flow: creating a booking does not yet create
+revenue transactions. The JSON bodies below illustrate the response shape; the values are examples.
+
+Settlements (who pays whom, and when) are a separate, tested API: see
+[SETTLEMENT_AND_SECURITY.md](SETTLEMENT_AND_SECURITY.md).
 
 ## Base URL
 ```
-http://localhost:3000/api/v1/b2b/multi-supplier
+http://localhost:3001/api/v1/b2b/multi-supplier
 ```
 
 ## Authentication
-All endpoints require API key authentication via Bearer token in the Authorization header:
+Every endpoint requires a tenant API key:
 ```
 Authorization: Bearer <API_KEY>
 ```
+The tenant is taken from the API key. Partnership and invoice endpoints that take an ID only act on records
+the calling tenant is a party to; anything else returns 404.
 
 ---
 
@@ -102,8 +112,7 @@ Retrieve all public inventory published by the current supplier.
     "property": {
       "id": "prop_123",
       "name": "Dubai Grand Hotel",
-      "city": "Dubai",
-      "country": "AE"
+      "city": "Dubai"
     },
     "room": {
       "type": "Deluxe Suite",
@@ -353,7 +362,7 @@ Retrieve partnership agreements.
     "commissionRules": [
       {
         "id": "rule_123",
-        "commissionPct": 18,
+        "baseCommissionPct": 18,
         "country": "IN",
         "channel": "b2c"
       }
@@ -413,7 +422,9 @@ Get performance metrics for a partnership.
 ### 3.5 Add Commission Rule
 **Endpoint:** `POST /partnerships/:partnershipId/commission-rules`
 
-Add conditional commission rule to partnership.
+Add a conditional commission rule. Only the inventory owner (source supplier) of the partnership may do this.
+When several rules match a booking, the highest `priority` wins, then the newest; with no match the
+partnership default applies.
 
 **Request Body:**
 ```json
@@ -433,13 +444,16 @@ Add conditional commission rule to partnership.
 {
   "id": "rule_123",
   "partnershipId": "part_123",
-  "commissionPct": 18,
+  "supplierId": "supplier_1",
+  "baseCommissionPct": 18,
   "country": "IN",
   "channel": "b2c",
   "partnerTier": "gold",
   "season": "high",
-  "lengthOfStayMin": 7,
-  "lengthOfStayMax": 30,
+  "minLengthOfStay": 7,
+  "maxLengthOfStay": 30,
+  "priority": 0,
+  "active": true,
   "createdAt": "2026-10-02T10:00:00Z"
 }
 ```
@@ -526,7 +540,8 @@ Get commission statistics for a distributor.
 ### 4.3 Calculate Revenue Split
 **Endpoint:** `POST /commissions/calculate`
 
-Calculate detailed revenue distribution for a booking.
+Calculator only: returns a breakdown for the numbers supplied and stores nothing. Actual settlement amounts
+are computed by the settlement API from the booking record.
 
 **Request Body:**
 ```json
@@ -554,7 +569,7 @@ Calculate detailed revenue distribution for a booking.
   "paymentGatewayFee": 26.25,
   "taxAmount": 70.00,
   "distribution": {
-    "hotelReceives": 683.50,
+    "hotelReceives": 686.00,
     "distributorReceives": 35.00,
     "platformReceives": 43.75,
     "taxesHeld": 70.00
@@ -564,12 +579,15 @@ Calculate detailed revenue distribution for a booking.
 
 ---
 
-## 5. BILLING & SETTLEMENT ENDPOINTS
+## 5. BILLING (INVOICE) ENDPOINTS
+
+Invoices summarise a supplier's settled revenue transactions for a month. They do not move money.
 
 ### 5.1 Generate Monthly Invoice
 **Endpoint:** `POST /billing/invoice/2026-10`
 
-Generate invoice for a specific month.
+Generate the calling supplier's invoice for a month (`YYYY-MM`). Returns `null` if there are no settled
+transactions in that month, and 409 if the invoice already exists.
 
 **Response:** (201 Created)
 ```json
@@ -621,7 +639,7 @@ Retrieve all invoices for supplier.
 ### 5.3 Send Invoice
 **Endpoint:** `PUT /billing/invoice/:invoiceId/send`
 
-Send invoice to supplier for payment.
+Move one of your own invoices from `draft` to `sent`. No email or notification is sent yet.
 
 **Response:**
 ```json
@@ -637,7 +655,8 @@ Send invoice to supplier for payment.
 ### 5.4 Mark Invoice as Paid
 **Endpoint:** `PUT /billing/invoice/:invoiceId/mark-paid`
 
-Mark invoice as paid.
+Move one of your own invoices from `sent` or `overdue` to `paid`. This is self-reported: nothing verifies
+the payment.
 
 **Request Body:**
 ```json
@@ -658,77 +677,7 @@ Mark invoice as paid.
 
 ---
 
-### 5.5 Create Settlement
-**Endpoint:** `POST /billing/settlement/2026-10`
-
-Create settlement record for payout.
-
-**Response:** (201 Created)
-```json
-{
-  "id": "sett_123",
-  "supplierId": "supplier_1",
-  "invoiceId": "inv_123",
-  "settlementPeriod": "2026-10",
-  "settlementDate": "2026-10-02T10:00:00Z",
-  "totalAmount": 11400.00,
-  "status": "pending"
-}
-```
-
----
-
-### 5.6 Get Supplier Settlements
-**Endpoint:** `GET /billing/settlements?limit=20`
-
-Retrieve all settlements for supplier.
-
-**Response:**
-```json
-[
-  {
-    "id": "sett_123",
-    "supplierId": "supplier_1",
-    "settlementPeriod": "2026-10",
-    "totalAmount": 11400.00,
-    "status": "pending",
-    "settlementDate": "2026-10-02T10:00:00Z"
-  }
-]
-```
-
----
-
-### 5.7 Process Settlement Payout
-**Endpoint:** `PUT /billing/settlement/:settlementId/process`
-
-Process settlement and initiate payout.
-
-**Request Body:**
-```json
-{
-  "bankDetails": {
-    "accountNumber": "****1234",
-    "bankName": "Bank Name",
-    "swift": "SWFTCODE",
-    "iban": "IBAN123456"
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "id": "sett_123",
-  "status": "completed",
-  "paymentReference": "PAY-supplier_1-1696262400000",
-  "paidDate": "2026-10-02T12:00:00Z"
-}
-```
-
----
-
-### 5.8 Get Billing Summary
+### 5.5 Get Billing Summary
 **Endpoint:** `GET /billing/summary`
 
 Get aggregated billing statistics.
@@ -741,15 +690,13 @@ Get aggregated billing statistics.
   "sentInvoices": 0,
   "paidInvoices": 11,
   "totalBilled": 132000.00,
-  "totalFees": 3960.00,
-  "totalSettled": 11,
-  "pendingSettlement": 11400.00
+  "totalFees": 3960.00
 }
 ```
 
 ---
 
-### 5.9 Calculate Fee Breakdown
+### 5.6 Calculate Fee Breakdown
 **Endpoint:** `POST /billing/fee-breakdown`
 
 Calculate platform and gateway fee breakdown.
@@ -776,10 +723,10 @@ Calculate platform and gateway fee breakdown.
 
 ---
 
-### 5.10 Get Upcoming Due Dates
+### 5.7 Get Upcoming Due Dates
 **Endpoint:** `GET /billing/due-dates?limit=10`
 
-Get invoices with due dates in next 30 days.
+Get your own sent invoices falling due in the next 30 days.
 
 **Query Parameters:**
 - `limit`: Max results (default: 10)
@@ -801,52 +748,23 @@ Get invoices with due dates in next 30 days.
 
 ## Error Responses
 
-All endpoints may return error responses in the following format:
+Errors use this shape (`message` may be a string or a list of validation messages):
 
-### 400 Bad Request
-```json
-{
-  "statusCode": 400,
-  "message": "Invalid request parameters",
-  "error": "Bad Request"
-}
-```
-
-### 401 Unauthorized
-```json
-{
-  "statusCode": 401,
-  "message": "Invalid or missing API key",
-  "error": "Unauthorized"
-}
-```
-
-### 404 Not Found
 ```json
 {
   "statusCode": 404,
-  "message": "Resource not found",
-  "error": "Not Found"
+  "timestamp": "2026-10-02T16:32:00.182Z",
+  "path": "/api/v1/b2b/multi-supplier/partnerships/abc",
+  "method": "PUT",
+  "message": "Partnership not found",
+  "errors": "Not Found"
 }
 ```
 
-### 409 Conflict
-```json
-{
-  "statusCode": 409,
-  "message": "Resource already exists",
-  "error": "Conflict"
-}
-```
-
-### 500 Internal Server Error
-```json
-{
-  "statusCode": 500,
-  "message": "Internal server error",
-  "error": "Internal Server Error"
-}
-```
+- **400** invalid input
+- **401** missing or invalid API key
+- **404** record not found, or not yours
+- **409** already exists (duplicate partnership or invoice)
 
 ---
 
@@ -872,30 +790,29 @@ All endpoints may return error responses in the following format:
    { targetSupplierTenantId: "hotel_a", defaultCommissionPct: 15, ... }
    ```
 
-4. **Booking is made through Distributor B:**
-   - Guest pays $120 (net rate $100 + $20 markup)
-   - Hotel A receives $85 (commission $15)
-   - Distributor B profit: $5 ($20 markup - $15 commission)
-   - Platform takes $30 in fees
+4. **A booking is sold by Distributor B** (5 nights, owner net $150/night, guest pays $875, 5% commission):
+   - Platform keeps fees: $17.50 (2%) + $26.25 (3%)
+   - Distributor B receives $831.25 from the platform
+   - Distributor B owes Hotel A $787.50 ($750 net + $37.50 commission), due in 15 days
+   - Distributor B keeps $43.75
 
-5. **Monthly settlement:**
+   A platform admin records this with `POST /api/v1/settlements`; see
+   [SETTLEMENT_AND_SECURITY.md](SETTLEMENT_AND_SECURITY.md).
+
+5. **Monthly invoice** (after the inter-supplier settlement is marked paid):
    ```bash
    POST /billing/invoice/2026-10
-   # Creates invoice with all bookings
-   
+   PUT /billing/invoice/:invoiceId/send
    PUT /billing/invoice/:invoiceId/mark-paid
-   
-   POST /billing/settlement/2026-10
-   # Creates settlement for payout
    ```
 
 ---
 
 ## Rate Limiting
-- No explicit rate limits in v1, but recommend max 100 requests/minute per API key
-- Implement exponential backoff for retries
+Not enforced. A throttler is configured in the app module but its guard is not applied, and the per-key
+`rateLimit` value on API keys is not checked on these routes.
 
 ---
 
 ## Version History
-- **v1.0** (2026-10-02): Initial multi-supplier API release
+- **2026-10-02**: Initial endpoints; settlement routes moved to the settlement API, ownership checks added.
