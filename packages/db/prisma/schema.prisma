@@ -57,6 +57,14 @@ model Tenant {
   b2bAgents             B2BAgent[] @relation("tenant_b2b_agents")
   commissions           Commission[] @relation("tenant_commissions")
   settlements           Settlement[] @relation("tenant_settlements")
+  apiKeys               ApiKey[] @relation("tenant_api_keys")
+
+  // Multi-supplier relations
+  outgoingPartnerships SupplierPartnership[] @relation("partnership_source")
+  incomingPartnerships SupplierPartnership[] @relation("partnership_target")
+  inventorySupplier    InventoryVisibility[] @relation("inventory_supplier")
+  commissionRules      SupplierCommissionRule[] @relation("commission_rules")
+  supplierInvoices     SupplierInvoice[] @relation("supplier_invoices")
 
   @@index([status])
   @@index([slug])
@@ -76,6 +84,75 @@ model TenantSettings {
   updatedAt           DateTime @updatedAt
 
   @@index([tenantId])
+}
+
+model ApiKey {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation("tenant_api_keys", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // API Key (hashed in DB)
+  keyHash             String   @unique /// SHA256 hash of the actual key
+  keyPrefix           String   /// First 8 characters of key for display (e.g., "sk_live_ab12...")
+
+  // Key Details
+  name                String   /// e.g., "Mobile App", "Web Frontend", "OTA Integration"
+  description         String?  /// Optional description of key usage
+
+  // Permissions
+  permissions         String[] /// ["search", "booking.create", "booking.read", "booking.cancel", etc.]
+
+  // Rate Limiting
+  rateLimit           Int      @default(1000) /// requests per minute
+
+  // Access Control
+  allowedOrigins      String[] /// CORS origins allowed to use this key (empty = all)
+  allowedIPs          String[] /// IP addresses allowed (empty = all)
+
+  // Metadata
+  lastUsedAt          DateTime?
+  createdBy           String?  /// User ID who created the key
+
+  // Status
+  status              String   @default("active") /// active, revoked, suspended
+  expiresAt           DateTime? /// Optional expiration date
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  apiLogs             ApiLog[]
+
+  @@index([tenantId])
+  @@index([keyHash])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model ApiLog {
+  id                  String   @id @default(cuid())
+  apiKeyId            String
+  apiKey              ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  // Request Details
+  method              String   /// GET, POST, etc.
+  endpoint            String   /// /b2c/search, /b2c/bookings, etc.
+  statusCode          Int      /// 200, 400, 401, 429, etc.
+
+  // Response Info
+  responseTime        Int      /// milliseconds
+  errorMessage        String?  /// Error message if failed
+
+  // Client Info
+  ipAddress           String
+  userAgent           String?
+  origin              String?
+
+  createdAt           DateTime @default(now())
+
+  @@index([apiKeyId, createdAt])
+  @@index([statusCode])
+  @@index([createdAt])
 }
 
 model TenantUser {
@@ -452,6 +529,271 @@ model PropertyBankDetail {
 }
 
 // ============================================================================
+// MULTI-SUPPLIER DISTRIBUTION NETWORK
+// ============================================================================
+
+model SupplierPartnership {
+  id                  String   @id @default(cuid())
+
+  /// Source supplier (hotel/property owner)
+  sourceSupplier      Tenant   @relation("partnership_source", fields: [sourceSupplier], references: [id], onDelete: Cascade)
+  sourceSupplierStr   String   @map("sourceSupplier")
+
+  /// Target supplier (distributor/partner)
+  targetSupplier      Tenant   @relation("partnership_target", fields: [targetSupplierStr], references: [id], onDelete: Cascade)
+  targetSupplierStr   String   @map("targetSupplier")
+
+  /// Partnership type
+  partnershipType     String   @default("public_inventory") /// public_inventory, exclusive, reserved
+
+  /// Commission terms
+  minCommissionPct    Float    @default(8)   /// Minimum % source gets
+  maxCommissionPct    Float    @default(25)  /// Maximum % source gets
+  defaultCommissionPct Float   @default(15)  /// Default commission for new rates
+
+  /// Booking window (days)
+  minBookingWindow    Int      @default(0)   /// Days before arrival
+  maxBookingWindow    Int      @default(365) /// Days in advance
+
+  /// Markup rules
+  maxMarkupPct        Float    @default(30)  /// Max % target can add
+  minMarkupPct        Float    @default(5)   /// Min % to make deal worthwhile
+
+  /// Geographic restrictions
+  allowedCountries    String[] @default([])  /// Empty = all countries allowed
+
+  /// Status
+  status              String   @default("active") /// active, suspended, terminated
+
+  /// Volume discounts
+  volumeDiscounts     Json?    /// Array of {min_bookings: INT, commission_reduction: FLOAT}
+
+  /// Performance metrics
+  maxCancellationRate Float    @default(20)  /// Max % cancellations allowed
+  minReviewScore      Float    @default(3.5) /// Min review score
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  inventoryVisibilities InventoryVisibility[]
+
+  @@unique([sourceSupplierStr, targetSupplierStr])
+  @@index([sourceSupplierStr])
+  @@index([targetSupplierStr])
+  @@index([status])
+}
+
+model InventoryVisibility {
+  id                  String   @id @default(cuid())
+
+  /// Original supplier (property owner)
+  supplierTenant      Tenant   @relation("inventory_supplier", fields: [supplierTenantId], references: [id], onDelete: Cascade)
+  supplierTenantId    String
+
+  /// Property
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId          String
+
+  /// Room type
+  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId              String
+
+  /// Rate plan
+  ratePlan            RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  ratePlanId          String
+
+  /// Visibility level
+  visibilityLevel     String   @default("private") /// private, public, reserved
+
+  /// Public configuration
+  netRate             Float?   /// Base rate supplier gets (for public inventory)
+  maxMarkup           Float?   /// Max % others can add
+  commissionShare     Float?   /// % of net rate that goes to supplier
+
+  /// Geographic visibility
+  allowedCountries    String[] @default([])  /// Empty = all countries
+  allowedCurrencies   String[] @default(["USD"])
+
+  /// Booking rules
+  minBookingWindow    Int      @default(0)
+  maxBookingWindow    Int      @default(365)
+
+  /// Reserved inventory
+  reservedFor         String?  /// Partner tenant ID if reserved
+  reservedAllocation  Int?     /// Units reserved for partner
+
+  /// Inventory status
+  status              String   @default("active") /// active, paused, blocked
+
+  /// Relationships
+  partnership         SupplierPartnership? @relation(fields: [partnershipId], references: [id])
+  partnershipId       String?
+
+  revenueTransactions RevenueTransaction[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([supplierTenantId, propertyId, roomId, ratePlanId, visibilityLevel])
+  @@index([supplierTenantId])
+  @@index([propertyId])
+  @@index([visibilityLevel])
+  @@index([status])
+}
+
+model SupplierCommissionRule {
+  id                  String   @id @default(cuid())
+
+  /// Supplier this rule applies to
+  supplier            Tenant   @relation("commission_rules", fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId          String
+
+  /// Conditions for this rule
+  country             String?  /// Specific country (null = all countries)
+  channel             String   @default("all") /// b2c, b2b, all
+  partnerTier         String   @default("standard") /// gold, silver, bronze, standard
+  season              String?  /// peak, shoulder, off (null = all)
+  minLengthOfStay     Int      @default(1)
+  maxLengthOfStay     Int?
+
+  /// Commission values
+  baseCommissionPct   Float    /// Base commission %
+  variableCommissionPct Float  @default(0) /// Varies by demand
+  capAmount           Float?   /// Max commission amount
+
+  /// Rule priority (higher = evaluated first)
+  priority            Int      @default(0)
+
+  /// Status
+  active              Boolean  @default(true)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([supplierId])
+  @@index([active])
+  @@index([priority])
+}
+
+model RevenueTransaction {
+  id                  String   @id @default(cuid())
+
+  /// Booking reference
+  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId           String
+
+  /// Inventory reference
+  inventoryVisibility InventoryVisibility @relation(fields: [inventoryVisibilityId], references: [id])
+  inventoryVisibilityId String
+
+  /// Transaction type
+  transactionType     String   @default("booking") /// booking, cancellation, refund, adjustment
+  transactionDate     DateTime @default(now())
+
+  /// Parties involved
+  originSupplier      String   /// Supplier ID (hotel owner)
+  sellingSupplier     String   /// Supplier ID (distributor/partner)
+
+  /// Amounts
+  guestPaid           Float    /// Total amount guest paid
+  netToHotel          Float    /// Net amount to hotel (commission included)
+  markupAmount        Float    /// Markup added by distributor
+
+  /// Commission details
+  commissionToHotel   Float    /// Commission % paid to hotel
+  platformFee         Float    /// Platform processing fee
+  paymentGatewayFee   Float    /// Payment gateway fee
+  taxAmount           Float    /// Taxes collected
+
+  /// Status
+  status              String   @default("pending") /// pending, settled, disputed, refunded
+  settlementDate      DateTime?
+
+  /// For disputes
+  disputeReason       String?
+  notes               String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([originSupplier])
+  @@index([sellingSupplier])
+  @@index([transactionDate])
+  @@index([status])
+  @@index([settlementDate])
+}
+
+model SupplierInvoice {
+  id                  String   @id @default(cuid())
+
+  /// Supplier being billed
+  supplier            Tenant   @relation("supplier_invoices", fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId          String
+
+  /// Invoice details
+  invoicePeriod       String   /// YYYY-MM format
+  invoiceNumber       String   @unique
+  invoiceDate         DateTime @default(now())
+  dueDate             DateTime
+
+  /// Summary
+  totalBookings       Int      @default(0)
+  grossAmount         Float    @default(0)
+  platformFee         Float    @default(0)
+  paymentGatewayFee   Float    @default(0)
+  netAmount           Float    @default(0)
+
+  /// Payment
+  paymentMethod       String?  /// bank_transfer, stripe, wallet
+  status              String   @default("draft") /// draft, sent, paid, overdue
+  paidDate            DateTime?
+
+  /// Line items (JSON array for flexibility)
+  lineItems           Json?    /// Array of {booking_id, amount, type}
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([supplierId, invoicePeriod])
+  @@index([supplierId])
+  @@index([invoiceDate])
+  @@index([status])
+}
+
+model Settlement {
+  id                  String   @id @default(cuid())
+
+  /// Supplier
+  tenant              Tenant   @relation("tenant_settlements", fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId            String
+
+  /// Settlement details
+  settlementPeriod    String   /// YYYY-MM format
+  settlementDate      DateTime @default(now())
+
+  /// Amounts
+  totalCredit         Float    @default(0)  /// Total bookings amount
+  totalDeductions     Float    @default(0) /// Fees, holds, etc.
+  netAmount           Float    @default(0) /// Final payout
+
+  /// Status
+  status              String   @default("pending") /// pending, processed, paid, failed
+  paymentReference    String?  /// Bank transfer reference
+
+  /// Related transactions
+  transactionCount    Int      @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, settlementPeriod])
+  @@index([tenantId])
+  @@index([status])
+  @@index([settlementDate])
+}
+
+// ============================================================================
 // ROOMS & RATE INVENTORY
 // ============================================================================
 
@@ -495,6 +837,9 @@ model Room {
   /// Phase 1: Inventory ledger
   inventoryLedger     InventoryLedger[]
   currentAvailability CurrentAvailability[]
+
+  /// Multi-supplier visibility
+  inventoryVisibilities InventoryVisibility[]
 
   @@unique([propertyId, code])
   @@index([propertyId])
@@ -545,6 +890,9 @@ model RatePlan {
   /// Phase 1: Inventory ledger
   inventoryLedger     InventoryLedger[]
   currentAvailability CurrentAvailability[]
+
+  /// Multi-supplier visibility
+  inventoryVisibilities InventoryVisibility[]
 
   @@unique([propertyId, code])
   @@index([propertyId])
@@ -906,6 +1254,9 @@ model Booking {
   items               BookingItem[]
   rateBreakdown       RateBreakdown?
   payment             Payment?
+
+  // Multi-supplier relations
+  revenueTransactions RevenueTransaction[]
 
   @@index([tenantId, propertyId])
   @@index([checkInDate, checkOutDate])
@@ -1372,12 +1723,40 @@ model FXRate {
 
   rate                Decimal  @db.Decimal(18, 8) /// 1 base = rate quote
   source              String   /// manual, api
+  apiProvider         String?  /// e.g., "forex_api", "exchangerate", etc.
 
   updatedAt           DateTime @updatedAt
   createdAt           DateTime @default(now())
 
+  // Relations
+  history             FXRateHistory[]
+
   @@unique([baseCurrencyId, quoteCurrencyId])
   @@index([updatedAt])
+}
+
+// 4.1 FX RATE HISTORY (Append-only audit trail for rate changes)
+model FXRateHistory {
+  id                  String   @id @default(cuid())
+
+  fxRateId            String
+  fxRate              FXRate   @relation(fields: [fxRateId], references: [id], onDelete: Cascade)
+
+  baseCurrencyId      String
+  quoteCurrencyId     String
+
+  rate                Decimal  @db.Decimal(18, 8) /// 1 base = rate quote
+  source              String   /// manual, api
+  apiProvider         String?
+
+  updatedBy           String?  /// User ID who made manual update
+  updateReason        String?  /// "manual_update", "api_sync", "correction"
+
+  createdAt           DateTime @default(now())
+
+  @@index([fxRateId, createdAt])
+  @@index([createdAt])
+  @@index([baseCurrencyId, quoteCurrencyId, createdAt])
 }
 
 // ============================================================================

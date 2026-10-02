@@ -1,7 +1,9 @@
-import { Controller, Post, Get, Param, Body, Query } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { B2CSearchService } from '../services/b2c-search.service';
+import { ApiKeyGuard } from '../../api-key/api-key.guard';
 
 @Controller('b2c')
+@UseGuards(ApiKeyGuard)
 export class B2CSearchController {
   constructor(private b2cSearchService: B2CSearchService) {}
 

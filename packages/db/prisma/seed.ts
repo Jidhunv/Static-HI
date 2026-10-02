@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -106,6 +107,115 @@ async function main() {
   ]);
 
   console.log('✓ Currencies seeded');
+
+  // ========================================================================
+  // FX RATES & HISTORICAL DATA (NEW)
+  // ========================================================================
+
+  console.log('💱 Creating FX rates...');
+
+  const usd = currencies.find((c) => c.code === 'USD')!;
+  const inr = currencies.find((c) => c.code === 'INR')!;
+  const gbp = currencies.find((c) => c.code === 'GBP')!;
+  const sgd = currencies.find((c) => c.code === 'SGD')!;
+
+  // Create base FX rates
+  const baseRates = [
+    { base: usd, quote: inr, rate: 83.15 },
+    { base: usd, quote: gbp, rate: 0.7892 },
+    { base: usd, quote: sgd, rate: 1.35 },
+    { base: gbp, quote: inr, rate: 105.25 },
+    { base: sgd, quote: inr, rate: 61.59 },
+  ];
+
+  const fxRates = await Promise.all(
+    baseRates.map((br) =>
+      prisma.fXRate.upsert({
+        where: {
+          baseCurrencyId_quoteCurrencyId: {
+            baseCurrencyId: br.base.id,
+            quoteCurrencyId: br.quote.id,
+          },
+        },
+        update: {
+          rate: new Decimal(br.rate.toString()),
+          source: 'manual',
+        },
+        create: {
+          baseCurrencyId: br.base.id,
+          quoteCurrencyId: br.quote.id,
+          rate: new Decimal(br.rate.toString()),
+          source: 'manual',
+        },
+      })
+    )
+  );
+
+  console.log(`✓ Created ${fxRates.length} FX rates`);
+
+  // ========================================================================
+  // HISTORICAL FX RATE DATA (Last 30 days)
+  // ========================================================================
+
+  console.log('📊 Creating 30 days of historical rate data...');
+
+  let historyCount = 0;
+  const now = new Date();
+
+  for (const fxRate of fxRates) {
+    // Generate historical entries for each rate
+    const daysOfData = 30;
+
+    for (let day = daysOfData; day > 0; day--) {
+      // Create 1-3 entries per day to simulate trading activity
+      const entriesPerDay = Math.floor(Math.random() * 3) + 1;
+
+      for (let entry = 0; entry < entriesPerDay; entry++) {
+        const timestamp = new Date(now);
+        timestamp.setDate(timestamp.getDate() - day);
+        timestamp.setHours(Math.floor(Math.random() * 24));
+        timestamp.setMinutes(Math.floor(Math.random() * 60));
+
+        // Simulate realistic rate variations (±0.5-2%)
+        const baseRate = parseFloat(fxRate.rate.toString());
+        const variation = (Math.random() - 0.5) * 0.02; // ±1%
+        const historicalRate = baseRate * (1 + variation);
+
+        // Mix of manual and API sources
+        const source = Math.random() > 0.6 ? 'api' : 'manual';
+        const reasons = ['manual_update', 'api_sync', 'correction', 'daily_update'];
+        const reason = reasons[Math.floor(Math.random() * reasons.length)];
+
+        const apiProviders =
+          source === 'api' ? ['exchangerate', 'forex_api', 'fixer'] : [null];
+        const apiProvider =
+          apiProviders[Math.floor(Math.random() * apiProviders.length)];
+
+        try {
+          await prisma.fXRateHistory.create({
+            data: {
+              fxRateId: fxRate.id,
+              baseCurrencyId: fxRate.baseCurrencyId,
+              quoteCurrencyId: fxRate.quoteCurrencyId,
+              rate: new Decimal(historicalRate.toFixed(8)),
+              source,
+              apiProvider: (apiProvider as string) || undefined,
+              updateReason: reason,
+              createdAt: timestamp,
+            },
+          });
+          historyCount++;
+        } catch (error: any) {
+          // Ignore unique constraint errors if entry already exists
+          if (!error.message.includes('Unique constraint')) {
+            console.log(`Warning: Could not create history entry: ${error.message}`);
+          }
+        }
+      }
+    }
+  }
+
+  console.log(`✓ Created ${historyCount} historical rate entries`);
 
   // Amenities
   const amenities = await Promise.all([
@@ -576,7 +686,51 @@ async function main() {
 
   console.log('✓ Distribution grant created (Luxury Hotels → Global DMCs)');
 
-  console.log('\n✅ Seeding complete!');
+  // ========================================================================
+  // SEEDING SUMMARY
+  // ========================================================================
+
+  console.log('\n' + '═'.repeat(70));
+  console.log('✨ DATABASE SEEDING COMPLETED SUCCESSFULLY!\n');
+  console.log('📊 Data Summary:');
+  console.log('   Platform Admin: 1');
+  console.log(`   Countries: ${countries.length}`);
+  console.log('   Currencies: 4 (USD, INR, GBP, SGD)');
+  console.log(`   FX Rates: ${fxRates.length}`);
+  console.log(`   FX Rate History Entries: ${historyCount}`);
+  console.log('   Amenities: 6');
+  console.log('   Bed Types: 5');
+  console.log('   Board Codes: 4');
+  console.log('   Tenants: 2 (Luxury Hotels Co., Global DMCs)');
+  console.log('   Properties: 1 (The Plaza Hotel)');
+  console.log('   Rooms: 2 (Deluxe, Suite)');
+  console.log('   Rate Plans: 2');
+  console.log('   Calendar Rates: 60 (30 days × 2 rooms)');
+  console.log('\n💱 Exchange Rates Setup:');
+  console.log('   ✅ USD ↔ INR (83.15)');
+  console.log('   ✅ USD ↔ GBP (0.7892)');
+  console.log('   ✅ USD ↔ SGD (1.35)');
+  console.log('   ✅ GBP ↔ INR (105.25)');
+  console.log('   ✅ SGD ↔ INR (61.59)');
+  console.log('   📈 Historical data: Last 30 days with realistic variations');
+  console.log('\n🔐 Test Credentials:');
+  console.log('   Platform Admin:');
+  console.log('      Email: admin@platform.com');
+  console.log('      Password: admin123');
+  console.log('   Tenant 1 (Luxury Hotels Co.):');
+  console.log('      Email: admin@luxuryhotels.com');
+  console.log('      Password: password123');
+  console.log('   Tenant 2 (Global DMCs):');
+  console.log('      Email: admin@globaldmcs.com');
+  console.log('      Password: password123');
+  console.log('\n🎯 Next Steps:');
+  console.log('   1. Start the application: npm run dev');
+  console.log('   2. Login to admin panel with platform admin credentials');
+  console.log('   3. Go to: Admin → Masters → Exchange Rates');
+  console.log('   4. Select a currency pair (e.g., USD → INR)');
+  console.log('   5. View 30 days of historical data');
+  console.log('   6. Test manual rate updates');
+  console.log('\n' + '═'.repeat(70) + '\n');
 }
 
 main()

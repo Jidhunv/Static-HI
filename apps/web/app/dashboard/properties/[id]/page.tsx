@@ -77,6 +77,7 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
     phone: '', email: '', website: '',
     country: 'US', state: '', city: '', area: '',
     latitude: '', longitude: '',
+    channelAvailability: { public: true, b2b: false, b2c: false },
   });
 
   const [amenities, setAmenities] = useState<string[]>([]);
@@ -147,6 +148,7 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
           area: data.area || '',
           latitude: data.latitude || '',
           longitude: data.longitude || '',
+          channelAvailability: data.channelAvailability || { public: true, b2b: false, b2c: false },
         });
         setAmenities(data.amenities || []);
         setRooms(data.rooms || []);
@@ -443,6 +445,76 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
                     className="w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700"
                     placeholder="e.g., -74.0060"
                   />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
+              <h3 className="font-semibold mb-4">Channel Availability</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Select which channels this hotel is available on</p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Public Channel */}
+                <div className="flex items-center gap-3 p-4 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition">
+                  <input
+                    type="checkbox"
+                    checked={info.channelAvailability?.public ?? true}
+                    onChange={(e) => setInfo({
+                      ...info,
+                      channelAvailability: {
+                        ...info.channelAvailability,
+                        public: e.target.checked
+                      }
+                    })}
+                    className="w-5 h-5 text-purple-600 rounded cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <label className="block font-medium text-slate-900 dark:text-slate-100 cursor-pointer">Public</label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Available on public website</p>
+                  </div>
+                  <span className="text-2xl">🌐</span>
+                </div>
+
+                {/* B2B Channel */}
+                <div className="flex items-center gap-3 p-4 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition">
+                  <input
+                    type="checkbox"
+                    checked={info.channelAvailability?.b2b ?? false}
+                    onChange={(e) => setInfo({
+                      ...info,
+                      channelAvailability: {
+                        ...info.channelAvailability,
+                        b2b: e.target.checked
+                      }
+                    })}
+                    className="w-5 h-5 text-purple-600 rounded cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <label className="block font-medium text-slate-900 dark:text-slate-100 cursor-pointer">B2B</label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Business to Business</p>
+                  </div>
+                  <span className="text-2xl">🤝</span>
+                </div>
+
+                {/* B2C Channel */}
+                <div className="flex items-center gap-3 p-4 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition">
+                  <input
+                    type="checkbox"
+                    checked={info.channelAvailability?.b2c ?? false}
+                    onChange={(e) => setInfo({
+                      ...info,
+                      channelAvailability: {
+                        ...info.channelAvailability,
+                        b2c: e.target.checked
+                      }
+                    })}
+                    className="w-5 h-5 text-purple-600 rounded cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <label className="block font-medium text-slate-900 dark:text-slate-100 cursor-pointer">B2C</label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Business to Consumer</p>
+                  </div>
+                  <span className="text-2xl">👥</span>
                 </div>
               </div>
             </div>
