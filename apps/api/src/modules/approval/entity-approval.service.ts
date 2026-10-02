@@ -174,11 +174,12 @@ export class EntityApprovalService {
   /**
    * List pending approvals (for super admin or tenant approval queues)
    */
-  async listPending(entityType: string, skip = 0, take = 50) {
+  async listPending(entityType: string, skip = 0, take = 50, entityIds?: string[]) {
     return this.prisma.entityApproval.findMany({
       where: {
         entityType,
         status: 'pending',
+        ...(entityIds && { entityId: { in: entityIds } }),
       },
       orderBy: { createdAt: 'asc' },
       skip,

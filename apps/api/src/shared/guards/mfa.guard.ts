@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { MFAService } from '../security/mfa.service';
 
-/** Use after PrincipalGuard. Fails closed: no enabled MFA or no valid x-mfa-code means no access. */
+/** Runs after the global PrincipalGuard. Fails closed: no enabled MFA or no valid x-mfa-code means no access. */
 @Injectable()
 export class MFAGuard implements CanActivate {
   constructor(private mfa: MFAService) {}

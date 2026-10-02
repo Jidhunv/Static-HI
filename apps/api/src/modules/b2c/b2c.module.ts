@@ -10,6 +10,7 @@ import { InventoryFilteringService } from './services/inventory-filtering.servic
 import { CommissionService } from './services/commission.service';
 import { SupplierBillingService } from './services/supplier-billing.service';
 import { SupplierPartnershipService } from './services/supplier-partnership.service';
+import { PaymentVerifierService } from './services/payment-verifier.service';
 import { SettlementService } from './services/settlement.service';
 import { ApiKeyModule } from '../api-key/api-key.module';
 import { AuditModule } from '../audit/audit.module';
@@ -26,6 +27,7 @@ import { AuditModule } from '../audit/audit.module';
     SupplierBillingService,
     SupplierPartnershipService,
     SettlementService,
+    PaymentVerifierService,
   ],
 })
 export class B2CModule {}

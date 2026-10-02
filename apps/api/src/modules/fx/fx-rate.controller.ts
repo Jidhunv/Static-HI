@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Put, Param, Body } from '@nestjs/common';
 import { FXRateService } from './fx-rate.service';
+import { PlatformAdminOnly } from '../../shared/security/access.decorators';
 
 @Controller('fx')
 export class FXRateController {
@@ -9,6 +10,7 @@ export class FXRateController {
    * Initialize default currencies (Super Admin only)
    */
   @Post('init-currencies')
+  @PlatformAdminOnly()
   async initCurrencies() {
     const count = await this.service.initializeCurrencies();
     return { message: `Initialized ${count} currencies` };
@@ -26,6 +28,7 @@ export class FXRateController {
    * Set FX rate manually (Super Admin)
    */
   @Put('rates/:baseCurrency/:quoteCurrency')
+  @PlatformAdminOnly()
   async setRate(
     @Param('baseCurrency') baseCurrency: string,
     @Param('quoteCurrency') quoteCurrency: string,
@@ -100,6 +103,7 @@ export class FXRateController {
    * Update rate from API (called by scheduled job)
    */
   @Put('rates-api/:baseCurrency/:quoteCurrency')
+  @PlatformAdminOnly()
   async updateFromAPI(
     @Param('baseCurrency') baseCurrency: string,
     @Param('quoteCurrency') quoteCurrency: string,

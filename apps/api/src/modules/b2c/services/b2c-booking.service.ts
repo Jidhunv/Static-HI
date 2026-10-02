@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { nanoid } from 'nanoid';
 import { SettlementService } from './settlement.service';
+import { PaymentVerifierService } from './payment-verifier.service';
 import { daysUntil, MS_PER_DAY, priceStay, publishedTo, PublishedTerms } from './stay-pricing';
 
 interface StayRequest {
@@ -20,6 +21,7 @@ export class B2CBookingService {
   constructor(
     private prisma: PrismaService,
     private settlements: SettlementService,
+    private payments: PaymentVerifierService,
   ) {}
 
   /**
@@ -169,61 +171,8 @@ export class B2CBookingService {
   ) {
     const { tenant, numberOfNights, offer } = await this.quote(dto);
 
-    // If property not found, create a demo booking with guest details persisted to DB
     if (!offer) {
-      const bookingCode = `${dto.propertyId}-B2C-${nanoid(8).toUpperCase()}`;
-      const confirmationNo = `CONF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5).toUpperCase()}`;
-
-      const booking = await this.prisma.booking.create({
-        data: {
-          systemConfirmationNo: confirmationNo,
-          bookingCode,
-          propertyId: dto.propertyId,
-          tenantId: tenant.id,
-          sourceTenantId: tenant.id,
-          bookingType: 'b2c',
-          guestEmail: dto.guestEmail,
-          guestName: dto.guestName,
-          guestPhone: dto.guestPhone,
-          checkInDate: dto.checkInDate,
-          checkOutDate: dto.checkOutDate,
-          roomType: 'Standard Room',
-          roomTypeCode: dto.roomTypeCode,
-          ratePlanCode: dto.ratePlanCode,
-          adults: dto.adults,
-          children: dto.children || 0,
-          rateType: 'domestic',
-          rateAmount: 250,
-          totalAmount: 275,
-          currency: 'USD',
-          netRate: 250,
-          numberOfNights,
-          numberOfGuests: dto.adults + (dto.children || 0),
-          subtotal: 250,
-          source: 'b2c',
-          status: 'pending_payment',
-          specialRequests: dto.specialRequests,
-        },
-      });
-
-      return {
-        id: booking.id,
-        bookingCode: booking.bookingCode,
-        bookingType: 'b2c',
-        propertyName: 'Demo Hotel',
-        checkInDate: booking.checkInDate,
-        checkOutDate: booking.checkOutDate,
-        guestName: booking.guestName,
-        guestEmail: booking.guestEmail,
-        numberOfNights,
-        b2cSellRate: 250,
-        subtotal: 250,
-        taxTotal: 25,
-        totalAmount: 275,
-        status: booking.status,
-        paymentUrl: null,
-        createdAt: booking.createdAt,
-      };
+      throw new NotFoundException('This property is not available from this storefront');
     }
 
     const { property, room, netRate, b2cSellRate, b2cMarkupPercentage, subtotal, taxTotal, totalAmount, distributed } = offer;
@@ -316,7 +265,18 @@ export class B2CBookingService {
   /**
    * Search bookings by guest email (for My Bookings page)
    */
-  async searchBookingsByEmail(email: string) {
+  async searchBookingsByEmail(email: string, reference: string) {
+    // Knowing an email address is not enough: the caller must also hold one of that guest's references.
+    const proof = await this.prisma.booking.findFirst({
+      where: {
+        guestEmail: { equals: email, mode: 'insensitive' },
+        bookingType: 'b2c',
+        OR: [{ id: reference }, { bookingCode: reference }, { systemConfirmationNo: reference }],
+      },
+      select: { id: true },
+    });
+    if (!proof) return { bookings: [] };
+
     const bookings = await this.prisma.booking.findMany({
       where: {
         guestEmail: { equals: email, mode: 'insensitive' },
@@ -359,7 +319,7 @@ export class B2CBookingService {
   /**
    * Get B2C booking by ID (for confirmation page)
    */
-  async getB2CBookingById(bookingId: string) {
+  async getB2CBookingById(bookingId: string, guestEmail: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -373,27 +333,34 @@ export class B2CBookingService {
       },
     });
 
-    // Return booking data or mock if not found
+    if (
+      !booking ||
+      booking.bookingType !== 'b2c' ||
+      booking.guestEmail.toLowerCase() !== guestEmail.toLowerCase()
+    ) {
+      throw new NotFoundException('Booking not found');
+    }
+
     return {
-      id: booking?.id || bookingId,
-      systemConfirmationNo: booking?.systemConfirmationNo || `CONF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-DEMO`,
-      bookingCode: booking?.bookingCode || `BOOKING-${bookingId.substring(0, 8).toUpperCase()}`,
-      propertyName: booking?.property?.name || 'Luxury Palace - Dubai',
-      roomType: booking?.roomType || 'Deluxe Room',
-      boardType: booking?.ratePlanCode || 'Room Only',
-      checkInDate: booking?.checkInDate || new Date('2026-10-05'),
-      checkOutDate: booking?.checkOutDate || new Date('2026-10-10'),
-      numberOfNights: booking?.numberOfNights || 5,
-      numberOfGuests: booking?.numberOfGuests || 2,
-      guestName: booking?.guestName || 'Guest User',
-      guestEmail: booking?.guestEmail || 'guest@example.com',
-      guestPhone: booking?.guestPhone || '+1 555-1234',
-      totalAmount: booking?.totalAmount || 1375,
-      rateAmount: booking?.rateAmount,
-      currency: booking?.currency || 'USD',
-      status: booking?.status || 'confirmed',
-      specialRequests: booking?.specialRequests,
-      createdAt: booking?.createdAt || new Date(),
+      id: booking.id,
+      systemConfirmationNo: booking.systemConfirmationNo,
+      bookingCode: booking.bookingCode,
+      propertyName: booking.property?.name,
+      roomType: booking.roomType,
+      boardType: booking.ratePlanCode,
+      checkInDate: booking.checkInDate,
+      checkOutDate: booking.checkOutDate,
+      numberOfNights: booking.numberOfNights,
+      numberOfGuests: booking.numberOfGuests,
+      guestName: booking.guestName,
+      guestEmail: booking.guestEmail,
+      guestPhone: booking.guestPhone,
+      totalAmount: booking.totalAmount,
+      rateAmount: booking.rateAmount,
+      currency: booking.currency,
+      status: booking.status,
+      specialRequests: booking.specialRequests,
+      createdAt: booking.createdAt,
     };
   }
 
@@ -438,6 +405,15 @@ export class B2CBookingService {
       throw new NotFoundException('Booking not found');
     }
 
+    if (booking.status !== 'pending_payment') {
+      throw new BadRequestException('Booking is not awaiting payment');
+    }
+    const verified = await this.payments.verify(stripePaymentIntentId, {
+      bookingId,
+      amount: booking.totalAmount,
+      currency: booking.currency,
+    });
+
     const subtotalAmount = booking.subtotal || booking.totalAmount;
     const breakdown = booking.rateBreakdown;
     const sellerTenantId = booking.resellerTenantId;
@@ -455,11 +431,16 @@ export class B2CBookingService {
         throw new BadRequestException('Booking is not awaiting payment');
       }
 
+      // One payment confirms one booking.
+      if (await tx.payment.findFirst({ where: { stripePaymentIntentId }, select: { id: true } })) {
+        throw new BadRequestException('This payment has already been used');
+      }
+
       await tx.payment.create({
         data: {
           bookingId,
           status: 'succeeded',
-          method: 'stripe',
+          method: verified ? 'stripe' : 'unverified_dev',
           stripePaymentIntentId,
           amount: subtotalAmount,
           currency: 'USD',

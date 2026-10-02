@@ -1,9 +1,7 @@
 import { Module, MiddlewareConsumer, NestModule, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { APP_PIPE, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD, APP_PIPE, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import helmet from 'helmet';
 import compression from 'compression';
 
@@ -22,8 +20,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { FXModule } from './modules/fx/fx.module';
 import { RateCardModule } from './modules/rate-card/rate-card.module';
 import { ApiKeyModule } from './modules/api-key/api-key.module';
-import { TenantMiddleware } from './shared/middleware/tenant.middleware';
-import { RLSMiddleware } from './shared/middleware/rls.middleware';
+import { PrincipalGuard } from './shared/guards/principal.guard';
 import { AllExceptionsFilter } from './shared/filters/exception.filter';
 import { SecurityInterceptor } from './shared/interceptors/security.interceptor';
 import { SecurityModule } from './shared/security/security.module';
@@ -31,12 +28,10 @@ import { SecurityModule } from './shared/security/security.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env.local', '.env'] }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }, { ttl: 3600000, limit: 1000 }]),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
-      signOptions: { expiresIn: parseInt(process.env.JWT_EXPIRATION || '86400') },
-    }),
-    PassportModule,
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 60000, limit: 100 },
+      { name: 'long', ttl: 3600000, limit: 1000 },
+    ]),
     PrismaModule,
     SecurityModule,
     AuthModule,
@@ -55,6 +50,9 @@ import { SecurityModule } from './shared/security/security.module';
     ApiKeyModule,
   ],
   providers: [
+    // Order matters: throttle first, then authenticate. Routes are private unless marked @Public().
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: PrincipalGuard },
     { provide: APP_PIPE, useValue: new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true } }) },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: SecurityInterceptor },
@@ -62,6 +60,6 @@ import { SecurityModule } from './shared/security/security.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(helmet(), compression(), TenantMiddleware, RLSMiddleware).forRoutes('*');
+    consumer.apply(helmet(), compression()).forRoutes('*');
   }
 }

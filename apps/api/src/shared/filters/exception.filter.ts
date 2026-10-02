@@ -25,7 +25,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message = exception.message;
       }
     } else if (exception instanceof Error) {
-      message = exception.message;
+      // The detail (queries, file paths) stays in the log; the caller gets a generic message.
       this.logger.error(`Unhandled error: ${exception.message}`, exception.stack);
     }
 

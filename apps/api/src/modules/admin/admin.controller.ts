@@ -1,9 +1,9 @@
-import { Controller, Get, Post, Param, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Param, HttpCode } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { JwtAuthGuard } from '../../shared/guards/jwt.guard';
+import { PlatformAdminOnly } from '../../shared/security/access.decorators';
 
 @Controller('admin')
-@UseGuards(JwtAuthGuard)
+@PlatformAdminOnly()
 export class AdminController {
   constructor(private adminService: AdminService) {}
 

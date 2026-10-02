@@ -6,6 +6,8 @@ import { LoginDto } from './dto/login.dto';
 
 const BCRYPT_ROUNDS = 12;
 const MIN_PASSWORD_LENGTH = 8;
+// Compared against when the account does not exist, so a miss takes as long as a wrong password.
+const DUMMY_HASH = bcrypt.hashSync('no-such-account', BCRYPT_ROUNDS);
 
 @Injectable()
 export class AuthService {
@@ -25,8 +27,9 @@ export class AuthService {
     }
   }
 
-  private async verifyPassword(plainPassword: string, hashedPassword: string): Promise<boolean> {
-    return bcrypt.compare(plainPassword, hashedPassword);
+  private async verifyPassword(plainPassword: string, hashedPassword?: string): Promise<boolean> {
+    const matches = await bcrypt.compare(plainPassword, hashedPassword ?? DUMMY_HASH);
+    return matches && !!hashedPassword;
   }
 
   private async hashPassword(password: string): Promise<string> {
@@ -40,22 +43,20 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const tenant = await this.prisma.tenant.findUnique({ where: { slug: dto.tenantId } });
-    if (!tenant) {
-      this.logger.warn(`Login attempt for non-existent tenant: ${dto.tenantId}`);
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    const user = tenant
+      ? await this.prisma.tenantUser.findUnique({
+          where: { tenantId_email: { tenantId: tenant.id, email: dto.email } },
+          include: { tenant: true },
+        })
+      : null;
 
-    const user = await this.prisma.tenantUser.findUnique({
-      where: { tenantId_email: { tenantId: tenant.id, email: dto.email } },
-      include: { tenant: true },
-    });
-
-    if (!user || !(await this.verifyPassword(dto.password, user.password))) {
+    if (!(await this.verifyPassword(dto.password, user?.password)) || !user) {
       this.logger.warn(`Failed login for user: ${dto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (user.status !== 'active') throw new UnauthorizedException('User account is inactive');
+    if (user.tenant.status !== 'active') throw new UnauthorizedException('This organisation is not active yet');
 
     const token = this.jwtService.sign(this.buildTokenPayload(user));
     this.logger.log(`User logged in: ${user.email}`);
@@ -68,7 +69,7 @@ export class AuthService {
 
   async adminLogin(email: string, password: string) {
     const admin = await this.prisma.platformAdmin.findUnique({ where: { email } });
-    if (!admin || !(await this.verifyPassword(password, admin.password))) {
+    if (!(await this.verifyPassword(password, admin?.password)) || !admin) {
       this.logger.warn(`Failed admin login for: ${email}`);
       throw new UnauthorizedException('Invalid credentials');
     }

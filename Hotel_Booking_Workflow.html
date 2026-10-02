@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hotel Booking Multi-Supplier Settlement Workflow</title>
+    <style>
+        body { font-family: Calibri, Arial, sans-serif; margin: 1in; line-height: 1.5; color: #333; }
+        h1 { font-size: 28pt; text-align: center; margin-bottom: 20pt; }
+        h2 { font-size: 14pt; font-weight: bold; margin-top: 18pt; margin-bottom: 10pt; color: #1f4e78; border-bottom: 2pt solid #1f4e78; padding-bottom: 4pt; }
+        h3 { font-size: 12pt; font-weight: bold; margin-top: 12pt; margin-bottom: 6pt; color: #2e5090; }
+        p { margin: 0 0 10pt 0; text-align: justify; }
+        ul { margin: 0 0 12pt 20pt; }
+        li { margin-bottom: 8pt; }
+        table { width: 100%; border-collapse: collapse; margin: 12pt 0; }
+        th, td { border: 1pt solid #999; padding: 8pt; text-align: left; }
+        th { background-color: #d9e1f2; font-weight: bold; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .example { background-color: #fffacd; padding: 10pt; margin: 10pt 0; border-left: 4pt solid #daa520; }
+        .gap { background-color: #ffe0e0; padding: 6pt; margin: 4pt 0; }
+    </style>
+</head>
+<body>
+    <h1>Hotel Booking Multi-Supplier Settlement Workflow</h1>
+    <p style="text-align: center; font-style: italic; margin-bottom: 30pt;">Architecture & Implementation Documentation</p>
+
+    <h2>Overview</h2>
+    <p>This document describes the current state of the multi-supplier booking and settlement system after two recent commits. The system enables multi-supplier reselling: a storefront tenant can discover and book another supplier's published inventory. When a guest pays for a booking from published inventory, two settlements are automatically created: one from the platform to the seller, and one from the seller to the inventory owner, with commission applied.</p>
+
+    <h2>Workflow: From Inventory Publishing to Payment</h2>
+
+    <h3>1. Inventory Owner Publishes</h3>
+    <p>A supplier publishes a room and rate plan via <strong>InventoryVisibility</strong> with:</p>
+    <ul>
+        <li><strong>Net rate:</strong> The owner's cost for the room</li>
+        <li><strong>Markup cap:</strong> Maximum markup the seller can apply (storefront's markup is capped at this)</li>
+        <li><strong>Commission percentage:</strong> What the owner earns as commission on top of net rate</li>
+        <li><strong>Booking window:</strong> Min/max days ahead when the room can be booked</li>
+        <li><strong>Visibility:</strong> Public (to all tenants) or reserved (for one specific tenant)</li>
+        <li><strong>Status:</strong> Active, paused, or archived</li>
+    </ul>
+
+    <h3>2. Storefront Searches</h3>
+    <p>Another tenant's storefront searches for properties via <strong>POST /b2c/search</strong>. The API returns:</p>
+    <ul>
+        <li>The tenant's own inventory (if marked public to B2C)</li>
+        <li>Any inventory published to it by other suppliers</li>
+    </ul>
+    <p>Only published room/rate-plan pairs are shown (not the entire property). Reserved terms override public ones when multiple records exist for the same pair.</p>
+
+    <h3>3. Guest Reviews & Books</h3>
+    <p>The guest calls:</p>
+    <ul>
+        <li><strong>POST /b2c/bookings/review:</strong> See the price without committing</li>
+        <li><strong>POST /b2c/bookings:</strong> Create a booking</li>
+    </ul>
+    <p>Search and booking share the same <strong>priceStay()</strong> function, so the price shown equals the price charged. Booking is refused if:</p>
+    <ul>
+        <li>Check-in is outside the published booking window</li>
+        <li>The markup would not cover what the seller owes the owner</li>
+        <li>There is insufficient availability</li>
+    </ul>
+
+    <h3>4. Payment & Settlement Creation</h3>
+    <p>The guest calls <strong>POST /b2c/bookings/:id/payment</strong> with their payment reference. In a single database transaction:</p>
+    <ul>
+        <li>Booking status is atomically updated to "confirmed" (prevents double-payment)</li>
+        <li>Payment record is created</li>
+        <li>Both settlements are created (seller and inter-supplier)</li>
+        <li>Revenue transaction is logged</li>
+        <li>Audit entries are written</li>
+    </ul>
+    <p><strong>Important:</strong> If any step fails, all are rolled back. A second payment attempt on the same booking returns 400 and does not create duplicate settlements.</p>
+
+    <h3>5. Settlement Visibility & Payment</h3>
+    <p>The platform admin can view settlements by role:</p>
+    <ul>
+        <li><strong>GET /settlements/receivable:</strong> Inter-supplier settlements owed to the admin's tenant (where admin is the owner)</li>
+        <li><strong>GET /settlements/payable:</strong> Settlements the admin's tenant owes (where admin is the seller)</li>
+    </ul>
+    <p>Settlements progress: <strong>pending → paid</strong> (admin marks paid with MFA). Tier-2 settlements also get a 15-day due date and are marked overdue if unpaid after that.</p>
+
+    <h3>6. Cancellation Handling</h3>
+    <p>If a booking is cancelled before payment, the settlements are voided (<strong>status → cancelled</strong>). If a settlement was already paid, it is left as is and the revenue transaction is flagged "disputed" for manual recovery.</p>
+
+    <h2>Key Implementation Details</h2>
+
+    <h3>Settlement Amounts</h3>
+    <p><strong>Guest Total = (Guest Rate × Nights) + 10% Tax</strong></p>
+    <ul>
+        <li><strong>Guest Rate:</strong> Net Rate × (1 + min(StorefrontMarkup, PublishedMaxMarkup) / 100)</li>
+        <li><strong>Seller receives:</strong> Guest Total − 2% Platform Fee − 3% Gateway Fee</li>
+        <li><strong>Owner receives:</strong> (Net Rate × Nights) + (Net Rate × Nights × Commission%)</li>
+        <li><strong>Validation:</strong> Seller must receive ≥ Owner amount; if not, booking is refused</li>
+    </ul>
+
+    <div class="example">
+        <strong>Example (5 nights, net $150, 20% markup cap, 5% commission):</strong>
+        <ul style="margin: 10pt 0 0 20pt;">
+            <li>Guest rate = $150 + min(25%, 20%) × $150 = $180/night</li>
+            <li>Guest pays = $180 × 5 + 10% = $990</li>
+            <li>Seller receives = $990 − $19.80 − $29.70 = <strong>$940.50</strong></li>
+            <li>Owner receives = ($150 × 5) + ($150 × 5 × 5%) = <strong>$787.50</strong></li>
+        </ul>
+    </div>
+
+    <h3>Pricing Function: priceStay()</h3>
+    <p>Located in <strong>stay-pricing.ts</strong>. Takes:</p>
+    <ul>
+        <li>Calendar rates (array of daily net rates)</li>
+        <li>Markup percentage</li>
+        <li>Number of nights</li>
+        <li>Optional published terms (net rate, markup cap, commission)</li>
+    </ul>
+    <p>Returns: net rate, sell rate, subtotal, tax, total amount, commission %, and <strong>sellable</strong> flag. Used by both search and booking so displayed price = charged price.</p>
+
+    <h3>Search Integration</h3>
+    <p><strong>B2CSearchService.searchTenantInventory()</strong> returns:</p>
+    <ul>
+        <li>Tenant's own public inventory</li>
+        <li>Inventory published to it</li>
+    </ul>
+    <p>For each room/rate-plan pair, it loads calendar rates for the date range, applies priceStay() with published terms, and hides rows with availability &lt; 1 or not sellable. <strong>No net rates or owner identity are exposed in search results.</strong></p>
+
+    <h3>Transactional Safety</h3>
+    <p>Booking creation uses <strong>Prisma $transaction()</strong> to make payment confirmation and settlement creation atomic. The booking status field is checked before update; a second payment attempt returns 400 and does not create duplicate settlements.</p>
+
+    <h2>Recent Commits</h2>
+
+    <h3>Commit 556c5da: Connect the booking flow to supplier settlements</h3>
+    <p><strong>Changes:</strong></p>
+    <ul>
+        <li>B2CBookingService now uses shared priceStay() for both review and create</li>
+        <li>Booking payment creates both settlements in same transaction as payment</li>
+        <li>RateBreakdown gains commissionPct and inventoryVisibilityId fields for audit</li>
+        <li>SettlementService adds createInTx(), logCreated(), cancelForBooking() methods</li>
+    </ul>
+
+    <h3>Commit e8921ec: Show published supplier inventory in storefront search</h3>
+    <p><strong>Changes:</strong></p>
+    <ul>
+        <li>B2CSearchService rewritten to include published inventory</li>
+        <li>Property details and room availability filter to published pairs only</li>
+        <li>Reserved terms take precedence over public ones</li>
+        <li>New stay-pricing.ts centralizes pricing logic</li>
+    </ul>
+
+    <h2>Test Coverage</h2>
+    <ul>
+        <li><strong>14 unit tests</strong> (pnpm --filter @hotel/api test): TOTP RFC 6238 vectors, encryption round-trip, tamper detection, settlement math, stay pricing. All passing.</li>
+        <li><strong>22-check booking smoke test:</strong> Pricing, ownership, settlement amounts, double-payment prevention, cancellation before/after payout, own-inventory bookings, term enforcement, booking window, paused inventory. All passing.</li>
+        <li><strong>20-check storefront smoke test:</strong> Published inventory appears in search/details/availability, search price = booking price, no leakage of net rates or owner identity, reserved terms override public, unprofitable/out-of-window/paused inventory hidden. All passing.</li>
+    </ul>
+
+    <h2>Known Gaps & Next Steps</h2>
+
+    <div class="gap">
+        <strong>1. Payment is not verified.</strong> POST /b2c/bookings/:id/payment accepts any reference from anyone who knows the booking ID and email. <em>Must be replaced by a verified gateway webhook before launch.</em>
+    </div>
+
+    <div class="gap">
+        <strong>2. Booking site is untested with published inventory.</strong> The API returns it correctly, but the frontend has not been run against it and falls back to mock data on failure.
+    </div>
+
+    <div class="gap">
+        <strong>3. No inventory capacity tracking.</strong> Creating or cancelling a booking does not reduce the room count in the calendar; availability is advisory only.
+    </div>
+
+    <div class="gap">
+        <strong>4. Cancellation is partial.</strong> Cancellation penalties are not split between seller and owner, paid settlements are not reversed, and chargebacks are not handled.
+    </div>
+
+    <div class="gap">
+        <strong>5. Demo bookings still exist.</strong> If a storefront cannot sell a property, booking creation stores a $275 placeholder that never creates settlements. Should be removed.
+    </div>
+
+    <div class="gap">
+        <strong>6. Rate limiting is configured but not enforced.</strong>
+    </div>
+
+    <div class="gap">
+        <strong>7. MFA is optional.</strong> Settlement endpoints require a code in the header, but do not require the user to have MFA enabled.
+    </div>
+
+    <div class="gap">
+        <strong>8. Tenants have no inventory management UI.</strong> All publishing, pausing, and term updates happen via API or database only.
+    </div>
+
+    <h2>Recommended Next Steps</h2>
+    <ol>
+        <li>Implement payment gateway webhook verification (Stripe, etc.) before launch</li>
+        <li>Test the frontend against published inventory and fix fallback behavior</li>
+        <li>Add inventory capacity management (room count, reservation blocking)</li>
+        <li>Implement cancellation penalties and refund logic</li>
+        <li>Remove demo bookings when storefront has a fallback flow</li>
+        <li>Build a supplier tenant UI for managing published inventory and rate terms</li>
+        <li>Enforce rate limiting on settlement endpoints</li>
+        <li>Set up monitoring and alerting for settlement creation and payment failures</li>
+    </ol>
+
+    <h2>Files Modified</h2>
+    <table>
+        <tr>
+            <th style="width: 35%;">File</th>
+            <th style="width: 65%;">Changes</th>
+        </tr>
+        <tr>
+            <td>b2c-booking.service.ts</td>
+            <td>Refactored to use priceStay(), added settlement creation on payment, shared pricing between review and create</td>
+        </tr>
+        <tr>
+            <td>b2c-search.service.ts</td>
+            <td>Complete rewrite to include published inventory in search, details, and availability endpoints</td>
+        </tr>
+        <tr>
+            <td>stay-pricing.ts</td>
+            <td>New file: shared pricing function, published terms interface, utility functions</td>
+        </tr>
+        <tr>
+            <td>stay-pricing.spec.ts</td>
+            <td>New file: 4 unit tests for pricing logic (own inventory, published inventory, fallback, sellability)</td>
+        </tr>
+        <tr>
+            <td>settlement.service.ts</td>
+            <td>Added createInTx(), logCreated(), cancelForBooking() methods for transaction-safe operations</td>
+        </tr>
+        <tr>
+            <td>schema.prisma</td>
+            <td>Added commissionPct and inventoryVisibilityId to RateBreakdown; resellerTenantId to Booking; "cancelled" status to SupplierSettlement</td>
+        </tr>
+        <tr>
+            <td>SETTLEMENT_AND_SECURITY.md</td>
+            <td>Updated to describe the complete booking-to-settlement flow and expanded gap list</td>
+        </tr>
+        <tr>
+            <td>MULTI_SUPPLIER_API.md</td>
+            <td>Clarified that published inventory now appears in storefront search and can be booked</td>
+        </tr>
+    </table>
+
+    <h2>Environment & Configuration</h2>
+
+    <h3>Required</h3>
+    <p><strong>ENCRYPTION_KEY:</strong> 64 hex characters (set in .env). Used for storing MFA secrets and PII encryption. No fallback; service throws on startup if missing.</p>
+
+    <h3>Optional</h3>
+    <ul>
+        <li>Database must be synced with Prisma schema (pnpm db:push)</li>
+        <li>API runs on port 3001 in dev mode</li>
+        <li>Frontend falls back to mock data if API is unavailable</li>
+    </ul>
+
+    <h2>Summary</h2>
+    <p>The system now supports end-to-end multi-supplier reselling: published inventory appears in storefronts, bookings are priced consistently, and settlements are created atomically with payment. Security includes MFA on settlement operations, AES-256-GCM encryption for secrets, and audit logging. Test coverage spans unit tests, integration checks, and smoke tests. <strong>Before launch, payment verification and inventory capacity tracking must be added.</strong></p>
+
+    <hr style="margin-top: 40pt; border: none; border-top: 1pt solid #ccc;">
+    <p style="font-size: 10pt; color: #666; text-align: center; margin-top: 20pt;">Generated from commits 556c5da and e8921ec | October 2, 2026</p>
+</body>
+</html>

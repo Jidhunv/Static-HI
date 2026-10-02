@@ -5,6 +5,11 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
+  // The seed creates accounts with well-known demo passwords.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to seed demo accounts in production');
+  }
+
   console.log('🌱 Seeding database...');
 
   // ========================================================================

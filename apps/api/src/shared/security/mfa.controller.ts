@@ -1,6 +1,5 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { IsString, Length } from 'class-validator';
-import { PrincipalGuard } from '../guards/principal.guard';
 import { MFAService } from './mfa.service';
 import { CurrentPrincipal, Principal } from './principal';
 
@@ -11,7 +10,6 @@ class MfaCodeDto {
 }
 
 @Controller('auth/mfa')
-@UseGuards(PrincipalGuard)
 export class MfaController {
   constructor(private mfa: MFAService) {}
 

@@ -1,6 +1,8 @@
 import { Controller, Post, Get, Patch, Delete, Param, Body, Query, Headers, Ip } from '@nestjs/common';
 import { ApiKeyService } from './api-key.service';
+import { PlatformAdminOnly } from '../../shared/security/access.decorators';
 
+@PlatformAdminOnly()
 @Controller('api-keys')
 export class ApiKeyController {
   constructor(private apiKeyService: ApiKeyService) {}

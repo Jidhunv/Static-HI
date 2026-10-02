@@ -1,14 +1,21 @@
 import { Controller, Get, Post, Delete, Param, Body, Query } from '@nestjs/common';
 import { RateCardService } from './rate-card.service';
+import { PlatformAdminOnly } from '../../shared/security/access.decorators';
+import { AccessService } from '../../shared/security/access.service';
+import { CurrentPrincipal, Principal } from '../../shared/security/principal';
 
 @Controller('rate-cards')
 export class RateCardController {
-  constructor(private service: RateCardService) {}
+  constructor(
+    private service: RateCardService,
+    private access: AccessService,
+  ) {}
 
   /**
    * Initialize board types (Super Admin only)
    */
   @Post('init-board-types')
+  @PlatformAdminOnly()
   async initBoardTypes() {
     const count = await this.service.initializeBoardTypes();
     return { message: `Initialized ${count} board types` };
@@ -27,6 +34,7 @@ export class RateCardController {
    */
   @Post(':propertyId/:ratePlanId/blackout')
   async addBlackout(
+    @CurrentPrincipal() actor: Principal,
     @Param('propertyId') propertyId: string,
     @Param('ratePlanId') ratePlanId: string,
     @Body()
@@ -34,10 +42,9 @@ export class RateCardController {
       startDate: string;
       endDate: string;
       reason: string;
-      userId: string;
-      email: string;
     }
   ) {
+    await this.access.assertRatePlan(actor, ratePlanId, propertyId);
     return this.service.addBlackout(
       propertyId,
       ratePlanId,
@@ -46,7 +53,7 @@ export class RateCardController {
         endDate: new Date(body.endDate),
         reason: body.reason,
       },
-      { id: body.userId, email: body.email }
+      { id: actor.id, email: actor.email }
     );
   }
 
@@ -55,20 +62,20 @@ export class RateCardController {
    */
   @Delete(':propertyId/:ratePlanId/blackout')
   async removeBlackout(
+    @CurrentPrincipal() actor: Principal,
     @Param('propertyId') propertyId: string,
     @Param('ratePlanId') ratePlanId: string,
     @Body()
     body: {
       reason: string;
-      userId: string;
-      email: string;
     }
   ) {
+    await this.access.assertRatePlan(actor, ratePlanId, propertyId);
     return this.service.removeBlackout(
       propertyId,
       ratePlanId,
       body.reason,
-      { id: body.userId, email: body.email }
+      { id: actor.id, email: actor.email }
     );
   }
 
@@ -76,7 +83,8 @@ export class RateCardController {
    * Get all blackout periods for rate plan
    */
   @Get(':ratePlanId/blackouts')
-  async getBlackouts(@Param('ratePlanId') ratePlanId: string) {
+  async getBlackouts(@CurrentPrincipal() actor: Principal, @Param('ratePlanId') ratePlanId: string) {
+    await this.access.assertRatePlan(actor, ratePlanId);
     const blackouts = await this.service.getBlackouts(ratePlanId);
     return { blackouts };
   }

@@ -1,12 +1,10 @@
 import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { MFAGuard } from '../../../shared/guards/mfa.guard';
-import { PrincipalGuard } from '../../../shared/guards/principal.guard';
 import { CurrentPrincipal, Principal } from '../../../shared/security/principal';
 import { CreateSettlementDto, MarkPaidDto } from '../dto/settlement.dto';
 import { SettlementService } from '../services/settlement.service';
 
 @Controller('settlements')
-@UseGuards(PrincipalGuard)
 export class SettlementController {
   constructor(private settlements: SettlementService) {}
 

@@ -16,7 +16,10 @@ import { CommissionService } from '../services/commission.service';
 import { SupplierBillingService } from '../services/supplier-billing.service';
 import { SupplierPartnershipService } from '../services/supplier-partnership.service';
 import { ApiKeyGuard, TenantFromApiKey } from '../../api-key/api-key.guard';
+import { Public } from '../../../shared/security/access.decorators';
 
+// No user login: authenticated by the tenant's API key instead.
+@Public()
 @Controller('b2b/multi-supplier')
 @UseGuards(ApiKeyGuard)
 export class MultiSupplierController {

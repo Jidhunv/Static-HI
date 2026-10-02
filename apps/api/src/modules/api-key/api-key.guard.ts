@@ -37,6 +37,7 @@ export class ApiKeyGuard implements CanActivate {
    * Supports multiple formats:
    * 1. Authorization: Bearer sk_live_...
    * 2. x-api-key: sk_live_...
+   * Not from the query string: URLs end up in logs and browser history.
    */
   private extractApiKey(request: Request): string | null {
     // Check Authorization header (Bearer)
@@ -54,12 +55,6 @@ export class ApiKeyGuard implements CanActivate {
       return Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader;
     }
 
-    // Check query parameter (less secure, but supported)
-    const queryKey = request.query.api_key as string | undefined;
-    if (queryKey) {
-      return Array.isArray(queryKey) ? queryKey[0] : queryKey;
-    }
-
     return null;
   }
 
@@ -67,15 +62,8 @@ export class ApiKeyGuard implements CanActivate {
    * Get client IP address
    */
   private getClientIp(request: Request): string {
-    // Check headers set by proxies
-    const forwarded = request.headers['x-forwarded-for'];
-    if (forwarded) {
-      const ips = typeof forwarded === 'string' ? forwarded.split(',') : forwarded;
-      return (ips[0] || '').trim();
-    }
-
-    // Fallback to direct connection
-    return request.ip || request.connection.remoteAddress || 'unknown';
+    // request.ip honours the trusted proxy setting; the raw X-Forwarded-For header can be set by anyone.
+    return request.ip || 'unknown';
   }
 }
 

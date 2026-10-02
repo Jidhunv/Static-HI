@@ -1,7 +1,12 @@
 import { Controller, Post, Body, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { IsEmail, IsObject, IsOptional, IsString } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
 import { LoginDto } from './dto/login.dto';
+import { Public } from '../../shared/security/access.decorators';
+
+// Per IP address: slows password guessing and mass sign-ups.
+const LOGIN_LIMIT = { short: { limit: 5, ttl: 60000 }, long: { limit: 30, ttl: 3600000 } };
 
 // Every field needs a decorator: the global ValidationPipe rejects undeclared properties.
 class AdminLoginDto {
@@ -26,6 +31,8 @@ class OnboardDto {
   @IsOptional() @IsString() documentUrl?: string;
 }
 
+@Public()
+@Throttle(LOGIN_LIMIT)
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}

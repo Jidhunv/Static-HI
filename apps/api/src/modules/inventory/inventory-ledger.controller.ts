@@ -1,9 +1,14 @@
 import { Controller, Get, Post, Param, Body, Query } from '@nestjs/common';
 import { InventoryLedgerService } from './inventory-ledger.service';
+import { AccessService } from '../../shared/security/access.service';
+import { CurrentPrincipal, Principal } from '../../shared/security/principal';
 
 @Controller('inventory')
 export class InventoryLedgerController {
-  constructor(private service: InventoryLedgerService) {}
+  constructor(
+    private service: InventoryLedgerService,
+    private access: AccessService,
+  ) {}
 
   /**
    * Check current availability for specific date
@@ -53,6 +58,7 @@ export class InventoryLedgerController {
    */
   @Post(':propertyId/:roomId/:ratePlanId/allocate')
   async allocate(
+    @CurrentPrincipal() actor: Principal,
     @Param('propertyId') propertyId: string,
     @Param('roomId') roomId: string,
     @Param('ratePlanId') ratePlanId: string,
@@ -60,18 +66,17 @@ export class InventoryLedgerController {
     body: {
       date: string;
       quantity: number;
-      userId: string;
-      email: string;
     }
   ) {
+    await this.access.assertProperty(actor, propertyId);
     return this.service.allocateRooms({
       propertyId,
       roomId,
       ratePlanId,
       date: new Date(body.date),
       quantity: body.quantity,
-      actorUserId: body.userId,
-      actorEmail: body.email,
+      actorUserId: actor.id,
+      actorEmail: actor.email,
     });
   }
 
@@ -80,6 +85,7 @@ export class InventoryLedgerController {
    */
   @Get(':propertyId/ledger')
   async getLedgerHistory(
+    @CurrentPrincipal() actor: Principal,
     @Param('propertyId') propertyId: string,
     @Query('roomId') roomId?: string,
     @Query('ratePlanId') ratePlanId?: string,
@@ -88,6 +94,7 @@ export class InventoryLedgerController {
     @Query('skip') skip?: string,
     @Query('take') take?: string
   ) {
+    await this.access.assertProperty(actor, propertyId);
     return this.service.getLedgerHistory(
       propertyId,
       roomId,

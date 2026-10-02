@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Body, Param, HttpCode, Query } from '@nestjs/common';
 import { CurrencyService } from './currency.service';
+import { PlatformAdminOnly } from '../../shared/security/access.decorators';
+import { CurrentPrincipal, Principal } from '../../shared/security/principal';
 
 @Controller('currency')
 export class CurrencyController {
@@ -48,8 +50,10 @@ export class CurrencyController {
   }
 
   @Post('update')
+  @PlatformAdminOnly()
   @HttpCode(200)
   async updateFXRate(
+    @CurrentPrincipal() actor: Principal,
     @Body()
     body: {
       baseCurrencyId: string;
@@ -57,7 +61,6 @@ export class CurrencyController {
       rate: number | string;
       source?: 'manual' | 'api';
       apiProvider?: string;
-      updatedBy?: string;
       updateReason?: string;
     },
   ) {
@@ -67,12 +70,13 @@ export class CurrencyController {
       body.rate,
       body.source || 'manual',
       body.apiProvider,
-      body.updatedBy,
+      actor.email,
       body.updateReason,
     );
   }
 
   @Post('bulk-update')
+  @PlatformAdminOnly()
   @HttpCode(200)
   async bulkUpdateFXRates(
     @Body()

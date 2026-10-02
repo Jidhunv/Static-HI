@@ -108,6 +108,41 @@ Safeguards:
 - A tenant user can only pay settlements where their tenant is the payer.
 - Create and both mark-paid actions write to the existing `AuditLog` table.
 
+## Access control
+
+Every route requires a signed-in user unless it is marked `@Public()`. A global guard verifies the
+bearer token, then loads the user or platform admin from the database; the tenant and role always come
+from that record, never from token claims, request parameters or the host name.
+
+| Routes | Who may call them |
+|---|---|
+| `/auth/login`, `/auth/admin-login`, `/auth/onboard`, `/masters/*` | Anyone |
+| `/b2c/bookings/*`, `/b2c/rooms/*` (guest storefront) | Anyone |
+| `/b2c/search`, `/b2c/hotels/*`, `/b2b/multi-supplier/*` | Holder of a tenant API key |
+| `/admin/*`, `/api-keys/*`, changing FX or currency rates, initialising master data | Platform admin |
+| `/approvals/*` | Platform admin; a tenant user only for its own tenant's B2B agents |
+| `/audit-logs/*` | Platform admin (all tenants); a tenant user sees its own tenant only |
+| `/properties/*`, `/tenant/*`, `/b2b/*` | Tenant user, scoped to its own tenant |
+| `/inventory/*` ledger and allocation, `/rate-cards/*` blackouts | Owner of the property, or platform admin |
+| Reading rates, availability and eligibility | Any signed-in user |
+
+Requests are limited per IP address and route to 100 a minute and 1,000 an hour. Login and sign-up
+routes are limited to 5 a minute and 30 an hour.
+
+Other protections:
+
+- A guest reaches a booking only with its ID or reference **and** the email it was booked under. Listing
+  bookings by email alone is refused. Guest routes are limited to 10 requests a minute.
+- Guest request bodies are validated; unknown fields are rejected.
+- A storefront API key works only for its own tenant's storefront, and is not accepted in the URL.
+- Users of a tenant that is pending, rejected or suspended cannot sign in or use existing tokens.
+- Unexpected errors return a generic message; the detail is only logged.
+- API documentation (`/api/docs`) is not served when `NODE_ENV=production`.
+- The demo seed refuses to run in production.
+
+Not covered: tenant user roles (`admin` and `staff` have the same access), and tenant self-service
+for API keys (only a platform admin can create them).
+
 ## Multi-factor authentication
 
 TOTP (RFC 6238: SHA-1, 6 digits, 30 seconds), which Google Authenticator and Microsoft Authenticator both
@@ -141,6 +176,10 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Losing or changing the key makes existing MFA secrets unreadable; affected users would need MFA reset in
 the database.
 
+Also required in `apps/api/.env`: `JWT_SECRET` (the API will not start without a private value of 32+
+characters). `STRIPE_SECRET_KEY` enables payment verification; without it payments are refused unless
+`ALLOW_UNVERIFIED_PAYMENTS=true`, which is for local development and ignored in production.
+
 ## Database
 
 The project has no migration history; the schema is applied with:
@@ -164,8 +203,13 @@ Encrypted at rest by the application: MFA secrets only. `Tenant.bankAccountEncry
 On a local machine, 2026-10-02:
 
 - `prisma validate` passes; `nest build` and the type-check are clean; the API boots.
-- Unit tests (`pnpm --filter @hotel/api test`, 14 tests): TOTP against the RFC 6238 test vectors, encryption
-  round trip and tamper detection, settlement split arithmetic, stay pricing.
+- Unit tests (`pnpm --filter @hotel/api test`, 38 tests): TOTP against the RFC 6238 test vectors, encryption
+  round trip and tamper detection, settlement split arithmetic, stay pricing, the login guard, the
+  signing-secret check and payment verification against a simulated Stripe.
+- An access-control script against the running API (62 checks, not kept in the repo): 20 private routes
+  refuse anonymous callers, with or without a forged host name; forged and mismatched tokens are refused;
+  tenant users are refused on admin routes and on other tenants' properties and inventory; login is
+  limited to 5 attempts a minute.
 - A manual smoke script against the running API (27 checks, not kept in the repo): authentication, MFA
   enrolment, rejected wrong, replayed and reused codes, input validation, duplicate prevention, both payout
   steps, tenant isolation, audit entries.
@@ -185,31 +229,35 @@ exist.
 
 Needed before taking real payments:
 
-1. **Payment is not verified.** `POST /b2c/bookings/:id/payment` is unauthenticated and accepts any
-   payment reference from anyone who knows the booking ID and guest email. It now creates settlements, so
-   a fake "payment" produces a platform payable. Settlements still need an admin with MFA to be marked
-   paid, but this must be replaced by a verified gateway webhook before launch. Nothing moves money.
+1. **Payment verification is untested against Stripe.** With `STRIPE_SECRET_KEY` set, the API asks Stripe
+   whether the payment intent succeeded for the booking's exact amount and currency and carries
+   `metadata.bookingId`; without the key, payments are refused. This is covered by unit tests with a
+   simulated Stripe, not by a real Stripe account. Still missing: the storefront does not create payment
+   intents, and there is no webhook, so a guest who pays and closes the browser is not confirmed.
 2. **The booking site itself is untested with published inventory.** The API returns it in the same shape
    as own inventory, but the frontend has not been run against it, and it falls back to mock data when
-   calls fail. The storefront's `tenantSlug` is also taken from the request rather than from the API key.
+   calls fail. Its storefront slug is hardcoded to `default-tenant`, so its API key must belong to that tenant.
 3. **Cancellation is partial.** Open settlements are voided, but cancellation penalties are not shared
    between seller and owner, paid settlements are not reversed, and chargebacks are not handled.
 4. **Bookings do not reduce availability.** Creating or cancelling a B2C booking does not change the
    calendar's room count, and the published `allowedCountries` and reserved allocation are not enforced.
-5. **Demo bookings.** If a storefront cannot sell a property, booking creation still stores a placeholder
-   booking at a fixed price. These never create settlements, but the fallback should be removed.
-6. **Payee confirmation and reconciliation.** The owner cannot confirm or dispute a payment the seller says
+5. **Payee confirmation and reconciliation.** The owner cannot confirm or dispute a payment the seller says
    it made, and nothing reconciles against bank or gateway records.
-7. **Decimal money and multi-currency.** Amounts are floats rounded to cents; fees are hardcoded
+6. **Decimal money and multi-currency.** Amounts are floats rounded to cents; fees are hardcoded
    percentages; there is no currency conversion.
-8. **JWT secret fallback.** The app falls back to a hardcoded development secret if `JWT_SECRET` is unset.
-9. **Rate limiting is not applied.** The throttler is configured but its guard is not registered.
-10. **Tenant login tokens carry no tenant ID**, so middleware that reads it from the token gets nothing. The
-   settlement routes look the user up in the database instead.
-11. **Key management.** The encryption key is an environment variable with no rotation.
-12. **MFA at login**, and MFA on other sensitive actions (API key creation, bank detail changes).
-13. **Multi-supplier endpoints** take unvalidated request bodies and have no tests.
-14. **Test coverage** is limited to the 14 unit tests above.
+7. **Guests are identified by booking ID or reference plus email**, not by a link sent to their inbox
+   (the platform sends no email). The public API key in the storefront is visible to anyone.
+8. **No database-level tenant isolation.** Row-level security is not enabled and the API connects as a
+   database superuser; isolation depends on the application checks above.
+9. **Tokens last 24 hours.** Deactivating a user or tenant takes effect immediately, but there is no
+   sign-out-everywhere, no account lockout beyond the per-address login limit, and tenant `admin` and
+   `staff` roles have the same access.
+10. **Key management.** The encryption key is an environment variable with no rotation.
+11. **MFA at login**, and MFA on other sensitive actions (API key creation, bank detail changes).
+12. **Multi-supplier endpoints** take unvalidated request bodies and have no tests.
+13. **Test coverage** is limited to the 38 unit tests above.
+14. **The admin web app needs Next.js 15.** Its 23 open advisories (2 critical) are only fixed in a new
+   major version. It also does not build: a component it imports is missing from the repository.
 
 Useful later: partner webhooks and notifications, fraud and velocity checks, batched payouts, report
 exports, dispute threads, commission rule templates.

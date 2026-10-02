@@ -1,6 +1,9 @@
+import { Public } from '../../../shared/security/access.decorators';
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { AmenityService } from '../services/amenity.service';
 
+// Reference data, needed before sign-in.
+@Public()
 @Controller('masters/amenities')
 export class AmenityController {
   constructor(private amenityService: AmenityService) {}
