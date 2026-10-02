@@ -564,6 +564,7 @@ model SupplierPartnership {
 
   /// Status
   status              String   @default("active") /// active, suspended, terminated
+  terminatedAt        DateTime? /// When partnership was terminated
 
   /// Volume discounts
   volumeDiscounts     Json?    /// Array of {min_bookings: INT, commission_reduction: FLOAT}
@@ -576,6 +577,7 @@ model SupplierPartnership {
   updatedAt           DateTime @updatedAt
 
   inventoryVisibilities InventoryVisibility[]
+  commissionRules     SupplierCommissionRule[]
 
   @@unique([sourceSupplierStr, targetSupplierStr])
   @@index([sourceSupplierStr])
@@ -709,6 +711,10 @@ model RevenueTransaction {
   status              String   @default("pending") /// pending, settled, disputed, refunded
   settlementDate      DateTime?
 
+  /// Settlement chain tracking (two-tier model)
+  sellerSettlementId      String?  /// Link to Tier 1 settlement (Platform → Distributor)
+  interSupplierSettlementId String? /// Link to Tier 2 settlement (Distributor → Hotel)
+
   /// For disputes
   disputeReason       String?
   notes               String?
@@ -722,6 +728,8 @@ model RevenueTransaction {
   @@index([transactionDate])
   @@index([status])
   @@index([settlementDate])
+  @@index([sellerSettlementId])
+  @@index([interSupplierSettlementId])
 }
 
 model SupplierInvoice {
@@ -764,9 +772,17 @@ model SupplierInvoice {
 model Settlement {
   id                  String   @id @default(cuid())
 
-  /// Supplier
+  /// Supplier (recipient)
   tenant              Tenant   @relation("tenant_settlements", fields: [tenantId], references: [id], onDelete: Cascade)
   tenantId            String
+  supplierId          String?  /// Alias for tenantId (used in services)
+
+  /// Two-tier settlement model
+  settlementType      String   @default("seller") /// seller (Platform→Distributor) | inter_supplier (Distributor→Hotel)
+
+  /// For inter_supplier settlements
+  payerTenantId       String?  /// Who pays the commission (distributor)
+  payeeTenantId       String?  /// Who receives commission (hotel owner)
 
   /// Settlement details
   settlementPeriod    String   /// YYYY-MM format
@@ -776,13 +792,27 @@ model Settlement {
   totalCredit         Float    @default(0)  /// Total bookings amount
   totalDeductions     Float    @default(0) /// Fees, holds, etc.
   netAmount           Float    @default(0) /// Final payout
+  totalAmount         Float?   /// Alternative amount field (for flexibility)
 
   /// Status
-  status              String   @default("pending") /// pending, processed, paid, failed
+  status              String   @default("pending") /// pending_seller | completed_seller | pending_inter_supplier | completed_inter_supplier | overdue | failed
   paymentReference    String?  /// Bank transfer reference
+  paidDate            DateTime? /// When settlement was actually paid
+
+  /// Payment tracking
+  retryCount          Int      @default(0) /// Failed payment retry count
+
+  /// Booking reference (for two-tier model)
+  bookingReference    String?  /// Reference to booking that triggered settlement
 
   /// Related transactions
   transactionCount    Int      @default(0)
+
+  /// For inter_supplier: payment due date
+  dueDate             DateTime?
+
+  /// Payment deadline
+  invoiceId           String?
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -791,6 +821,12 @@ model Settlement {
   @@index([tenantId])
   @@index([status])
   @@index([settlementDate])
+  @@index([settlementType])
+  @@index([payerTenantId])
+  @@index([payeeTenantId])
+  @@index([dueDate])
+  @@index([bookingReference])
+  @@index([payerTenantId, payeeTenantId, status])
 }
 
 // ============================================================================
