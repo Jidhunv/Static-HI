@@ -18,6 +18,28 @@ When a distributor (seller) sells another supplier's inventory, two settlements 
 | 1 | `seller` | Platform | Selling supplier | Platform admin |
 | 2 | `inter_supplier` | Selling supplier | Inventory owner | Selling supplier's user |
 
+### How settlements are created
+
+Automatically, by the booking flow:
+
+1. A supplier publishes a room and rate plan (`InventoryVisibility`: `public`, or `reserved` for one
+   tenant) with a net rate, a markup cap and a commission percentage.
+2. Another tenant's storefront can then review and book that room (`POST /b2c/bookings/review`,
+   `POST /b2c/bookings` with its own `tenantSlug`). The price uses the published net rate and the
+   storefront's B2C markup, limited by the cap. The booking is refused if it falls outside the published
+   booking window, or if the markup would not cover what the seller owes the owner.
+3. The booking is stored under the inventory owner, with the storefront as `resellerTenantId`; the
+   commission and inventory link are stored on its rate breakdown.
+4. When the booking is paid (`POST /b2c/bookings/:id/payment`), the payment record, the confirmation, both
+   settlements and the revenue transaction are written in one database transaction. A booking can be paid
+   once; a second attempt returns 400.
+5. If the booking is cancelled, unpaid settlements become `cancelled` and the revenue transaction
+   `refunded`. If a settlement was already paid it is left as is and the revenue transaction becomes
+   `disputed` for manual recovery.
+
+A tenant selling its own property creates no settlements. A platform admin can also create settlements by
+hand (`POST /settlements`) for bookings the flow did not cover.
+
 ### Amounts
 
 The guest total is read from the booking record, never from the request.
@@ -42,7 +64,7 @@ settlement code paid the owner only the commission. Confirm which rule the busin
 
 ### Statuses
 
-`pending` → `paid`. Tier 2 becomes `overdue` if unpaid 15 days after creation (daily job at 01:00); an
+`pending` → `paid`, or `cancelled` when the booking is cancelled first. Tier 2 becomes `overdue` if unpaid 15 days after creation (daily job at 01:00); an
 overdue settlement can still be paid. Marking tier 2 paid also marks the booking's revenue transaction
 `settled`, which is what monthly invoices are built from.
 
@@ -53,7 +75,7 @@ login token, not an API key). Routes marked MFA also require an `x-mfa-code` hea
 
 | Method | Route | Who | MFA | Purpose |
 |--------|-------|-----|-----|---------|
-| POST | `/settlements` | Platform admin | yes | Create both settlements for a booking |
+| POST | `/settlements` | Platform admin | yes | Create both settlements for a booking by hand |
 | PUT | `/settlements/:id/seller-paid` | Platform admin | yes | Record that the platform paid the seller |
 | PUT | `/settlements/:id/inter-supplier-paid` | Seller's user | yes | Record that the seller paid the owner |
 | GET | `/settlements/receivable` | Tenant user | no | Open amounts other suppliers owe you |
@@ -143,6 +165,9 @@ On a local machine, 2026-10-02:
 - A manual smoke script against the running API (27 checks, not kept in the repo): authentication, MFA
   enrolment, rejected wrong, replayed and reused codes, input validation, duplicate prevention, both payout
   steps, tenant isolation, audit entries.
+- A second smoke script for the booking flow (22 checks, not kept in the repo): pricing of published
+  inventory, booking ownership, settlement amounts on payment, double payment, cancellation before and
+  after payout, own-inventory bookings, unprofitable terms, booking window, paused inventory.
 
 Not verified: the multi-supplier endpoints in [MULTI_SUPPLIER_API.md](MULTI_SUPPLIER_API.md) at runtime,
 behaviour under concurrent load, and anything involving a real payment provider. No performance measurements
@@ -152,23 +177,31 @@ exist.
 
 Needed before taking real payments:
 
-1. **Payment gateway integration.** Nothing moves money; "paid" is a self-reported status with a reference
-   string.
-2. **Booking flow is not connected.** Bookings do not create revenue transactions or settlements; an admin
-   must call `POST /settlements` by hand, supplying the owner net amount and commission.
-3. **Refunds, cancellations and chargebacks** do not reverse or adjust settlements.
-4. **Payee confirmation and reconciliation.** The owner cannot confirm or dispute a payment the seller says
+1. **Payment is not verified.** `POST /b2c/bookings/:id/payment` is unauthenticated and accepts any
+   payment reference from anyone who knows the booking ID and guest email. It now creates settlements, so
+   a fake "payment" produces a platform payable. Settlements still need an admin with MFA to be marked
+   paid, but this must be replaced by a verified gateway webhook before launch. Nothing moves money.
+2. **Storefront search does not list other suppliers' published inventory**, and the property-detail and
+   room-availability endpoints only serve a tenant's own properties. Published inventory can be booked
+   through the API but is not discoverable in the storefront yet.
+3. **Cancellation is partial.** Open settlements are voided, but cancellation penalties are not shared
+   between seller and owner, paid settlements are not reversed, and chargebacks are not handled.
+4. **Bookings do not reduce availability.** Creating or cancelling a B2C booking does not change the
+   calendar's room count, and the published `allowedCountries` and reserved allocation are not enforced.
+5. **Demo bookings.** If a storefront cannot sell a property, booking creation still stores a placeholder
+   booking at a fixed price. These never create settlements, but the fallback should be removed.
+6. **Payee confirmation and reconciliation.** The owner cannot confirm or dispute a payment the seller says
    it made, and nothing reconciles against bank or gateway records.
-5. **Decimal money and multi-currency.** Amounts are floats rounded to cents; fees are hardcoded
+7. **Decimal money and multi-currency.** Amounts are floats rounded to cents; fees are hardcoded
    percentages; there is no currency conversion.
-6. **JWT secret fallback.** The app falls back to a hardcoded development secret if `JWT_SECRET` is unset.
-7. **Rate limiting is not applied.** The throttler is configured but its guard is not registered.
-8. **Tenant login tokens carry no tenant ID**, so middleware that reads it from the token gets nothing. The
+8. **JWT secret fallback.** The app falls back to a hardcoded development secret if `JWT_SECRET` is unset.
+9. **Rate limiting is not applied.** The throttler is configured but its guard is not registered.
+10. **Tenant login tokens carry no tenant ID**, so middleware that reads it from the token gets nothing. The
    settlement routes look the user up in the database instead.
-9. **Key management.** The encryption key is an environment variable with no rotation.
-10. **MFA at login**, and MFA on other sensitive actions (API key creation, bank detail changes).
-11. **Multi-supplier endpoints** take unvalidated request bodies and have no tests.
-12. **Test coverage** is limited to the 10 unit tests above.
+11. **Key management.** The encryption key is an environment variable with no rotation.
+12. **MFA at login**, and MFA on other sensitive actions (API key creation, bank detail changes).
+13. **Multi-supplier endpoints** take unvalidated request bodies and have no tests.
+14. **Test coverage** is limited to the 10 unit tests above.
 
 Useful later: partner webhooks and notifications, fraud and velocity checks, batched payouts, report
 exports, dispute threads, commission rule templates.

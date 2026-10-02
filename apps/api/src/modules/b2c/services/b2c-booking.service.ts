@@ -1,67 +1,86 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { nanoid } from 'nanoid';
+import { SettlementService } from './settlement.service';
+import { splitBooking } from './settlement.math';
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+interface StayRequest {
+  tenantSlug: string;
+  propertyId: string;
+  roomTypeCode: string;
+  ratePlanCode: string;
+  checkInDate: Date;
+  checkOutDate: Date;
+  adults: number;
+  children?: number;
+}
 
 @Injectable()
 export class B2CBookingService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private settlements: SettlementService,
+  ) {}
 
   /**
-   * Review booking - calculate rates without creating booking
-   * Used to show price breakdown before guest confirms
+   * Prices a stay for a storefront tenant. The property is either the tenant's own, or another
+   * supplier's inventory that is published (public, or reserved for this tenant); in that case the
+   * owner's published net rate, markup cap and commission apply. `offer` is null when the tenant
+   * cannot sell the property.
    */
-  async reviewBooking(dto: {
-    tenantSlug: string;
-    propertyId: string;
-    roomTypeCode: string;
-    ratePlanCode: string;
-    checkInDate: Date;
-    checkOutDate: Date;
-    adults: number;
-    children?: number;
-  }) {
-    // Get tenant
+  private async quote(dto: StayRequest) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { slug: dto.tenantSlug },
       select: { id: true, defaultB2CMarkup: true },
     });
-
     if (!tenant) {
       throw new BadRequestException('Tenant not found');
     }
 
-    // Verify property exists
-    const property = await this.prisma.property.findFirst({
-      where: {
-        id: dto.propertyId,
-        tenantId: tenant.id,
-        visibility: { in: ['public_b2c', 'public_both'] },
-      },
-    });
+    const numberOfNights = Math.ceil((dto.checkOutDate.getTime() - dto.checkInDate.getTime()) / MS_PER_DAY);
+    const none = { tenant, numberOfNights, offer: null };
 
-    if (!property) {
-      throw new NotFoundException('Property not found');
+    const property = await this.prisma.property.findUnique({ where: { id: dto.propertyId } });
+    if (!property) return none;
+    const own = property.tenantId === tenant.id;
+    if (own && !['public_b2c', 'public_both'].includes(property.visibility)) return none;
+
+    const [room, ratePlan] = await Promise.all([
+      this.prisma.room.findFirst({ where: { propertyId: dto.propertyId, code: dto.roomTypeCode } }),
+      this.prisma.ratePlan.findFirst({ where: { propertyId: dto.propertyId, code: dto.ratePlanCode } }),
+    ]);
+
+    let published: { id: string; netRate: number | null; maxMarkup: number | null; commissionShare: number | null } | null = null;
+    if (!own) {
+      if (!room || !ratePlan || property.status !== 'active') return none;
+      const visibility = await this.prisma.inventoryVisibility.findFirst({
+        where: {
+          supplierTenantId: property.tenantId,
+          propertyId: property.id,
+          roomId: room.id,
+          ratePlanId: ratePlan.id,
+          status: 'active',
+          OR: [{ visibilityLevel: 'public' }, { visibilityLevel: 'reserved', reservedFor: tenant.id }],
+        },
+      });
+      if (!visibility) return none;
+
+      const daysAhead = Math.floor((dto.checkInDate.getTime() - Date.now()) / MS_PER_DAY);
+      if (daysAhead < visibility.minBookingWindow || daysAhead > visibility.maxBookingWindow) {
+        throw new BadRequestException('Check-in date is outside the booking window for this rate');
+      }
+      published = visibility;
     }
-
-    // Find room
-    const room = await this.prisma.room.findFirst({
-      where: { propertyId: dto.propertyId, code: dto.roomTypeCode },
-    });
 
     if (!room) {
       throw new NotFoundException('Room type not found');
     }
-
-    // Find rate plan
-    const ratePlan = await this.prisma.ratePlan.findFirst({
-      where: { propertyId: dto.propertyId, code: dto.ratePlanCode },
-    });
-
     if (!ratePlan) {
       throw new NotFoundException('Rate plan not found');
     }
 
-    // Get calendar rates
     const calendarRates = await this.prisma.calendarRate.findMany({
       where: {
         roomId: room.id,
@@ -70,65 +89,87 @@ export class B2CBookingService {
         stopSell: false,
       },
     });
-
     if (calendarRates.length === 0) {
       throw new BadRequestException('No availability for selected dates');
     }
-
-    const minAvailability = Math.min(
-      ...calendarRates.map((cr) => cr.availability),
-    );
+    const minAvailability = Math.min(...calendarRates.map((cr) => cr.availability));
     if (minAvailability < 1) {
       throw new BadRequestException('Insufficient availability');
     }
 
-    // Calculate rates
-    const numberOfNights = Math.ceil(
-      (dto.checkOutDate.getTime() - dto.checkInDate.getTime()) /
-        (1000 * 60 * 60 * 24),
-    );
-
     const avgNetRate =
-      calendarRates.reduce((sum, cr) => sum + cr.netRate, 0) /
-      calendarRates.length;
+      published?.netRate ?? calendarRates.reduce((sum, cr) => sum + cr.netRate, 0) / calendarRates.length;
 
-    // Get B2C markup rules
     const b2cMarkupRules = await this.prisma.rateMarkup.findMany({
-      where: {
-        tenantId: tenant.id,
-        channel: 'b2c',
-      },
+      where: { tenantId: tenant.id, channel: 'b2c' },
       orderBy: { priority: 'desc' },
     });
+    let b2cMarkupPercentage = b2cMarkupRules[0]?.value || tenant.defaultB2CMarkup || 25;
+    if (published?.maxMarkup != null) {
+      b2cMarkupPercentage = Math.min(b2cMarkupPercentage, published.maxMarkup);
+    }
 
-    const b2cMarkupPercentage =
-      b2cMarkupRules[0]?.value || tenant.defaultB2CMarkup || 25;
-
-    // Calculate B2C sell rate
-    const b2cSellRate = Math.round(
-      avgNetRate * (1 + b2cMarkupPercentage / 100),
-    );
-
+    const netRate = Math.round(avgNetRate);
+    const b2cSellRate = Math.round(avgNetRate * (1 + b2cMarkupPercentage / 100));
     const subtotal = Math.round(b2cSellRate * numberOfNights);
-    const taxTotal = Math.round(subtotal * 0.1);
+    const taxTotal = Math.round(subtotal * 0.1); // 10% tax (simplified)
     const totalAmount = subtotal + taxTotal;
 
+    let distributed: { inventoryVisibilityId: string; commissionPct: number } | null = null;
+    if (published) {
+      const commissionPct = published.commissionShare ?? 0;
+      const split = splitBooking(totalAmount, netRate * numberOfNights, commissionPct);
+      if (split.ownerAmount > split.sellerAmount) {
+        throw new BadRequestException('This rate cannot be sold: the markup does not cover the amount owed to the owner');
+      }
+      distributed = { inventoryVisibilityId: published.id, commissionPct };
+    }
+
     return {
-      propertyName: property.name,
-      roomType: room.type,
+      tenant,
+      numberOfNights,
+      offer: {
+        property,
+        room,
+        minAvailability,
+        avgNetRate,
+        netRate,
+        b2cMarkupPercentage,
+        b2cSellRate,
+        subtotal,
+        taxTotal,
+        totalAmount,
+        distributed,
+      },
+    };
+  }
+
+  /**
+   * Review booking - calculate rates without creating booking
+   * Used to show price breakdown before guest confirms
+   */
+  async reviewBooking(dto: StayRequest) {
+    const { numberOfNights, offer } = await this.quote(dto);
+    if (!offer) {
+      throw new NotFoundException('Property not found');
+    }
+
+    return {
+      propertyName: offer.property.name,
+      roomType: offer.room.type,
       checkInDate: dto.checkInDate,
       checkOutDate: dto.checkOutDate,
       numberOfNights,
       numberOfGuests: dto.adults + (dto.children || 0),
       priceBreakdown: {
-        perNightRate: b2cSellRate,
+        perNightRate: offer.b2cSellRate,
         numberOfNights,
-        subtotal,
-        taxes: taxTotal,
-        totalAmount,
+        subtotal: offer.subtotal,
+        taxes: offer.taxTotal,
+        totalAmount: offer.totalAmount,
         currency: 'USD',
       },
-      availability: minAvailability,
+      availability: offer.minAvailability,
       cancellationPolicy: 'Free cancellation up to 7 days before check-in',
     };
   }
@@ -137,46 +178,18 @@ export class B2CBookingService {
    * Create a B2C booking (guest books on public storefront)
    * No authentication required
    */
-  async createB2CBooking(dto: {
-    tenantSlug: string;
-    propertyId: string;
-    roomTypeCode: string;
-    ratePlanCode: string;
-    checkInDate: Date;
-    checkOutDate: Date;
-    adults: number;
-    children?: number;
-    guestEmail: string;
-    guestName: string;
-    guestPhone?: string;
-    specialRequests?: string;
-  }) {
-    // Get tenant
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { slug: dto.tenantSlug },
-      select: { id: true, defaultB2CMarkup: true },
-    });
-
-    if (!tenant) {
-      throw new BadRequestException('Tenant not found');
-    }
-
-    // Verify property exists and is public for B2C
-    let property = await this.prisma.property.findFirst({
-      where: {
-        id: dto.propertyId,
-        tenantId: tenant.id,
-        visibility: { in: ['public_b2c', 'public_both'] },
-      },
-    });
-
-    const numberOfNights = Math.ceil(
-      (dto.checkOutDate.getTime() - dto.checkInDate.getTime()) /
-        (1000 * 60 * 60 * 24),
-    );
+  async createB2CBooking(
+    dto: StayRequest & {
+      guestEmail: string;
+      guestName: string;
+      guestPhone?: string;
+      specialRequests?: string;
+    },
+  ) {
+    const { tenant, numberOfNights, offer } = await this.quote(dto);
 
     // If property not found, create a demo booking with guest details persisted to DB
-    if (!property) {
+    if (!offer) {
       const bookingCode = `${dto.propertyId}-B2C-${nanoid(8).toUpperCase()}`;
       const confirmationNo = `CONF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5).toUpperCase()}`;
 
@@ -232,71 +245,11 @@ export class B2CBookingService {
       };
     }
 
-    // Find room
-    const room = await this.prisma.room.findFirst({
-      where: { propertyId: dto.propertyId, code: dto.roomTypeCode },
-    });
+    const { property, room, netRate, b2cSellRate, b2cMarkupPercentage, subtotal, taxTotal, totalAmount, distributed } = offer;
+    // The booking belongs to the inventory owner; a storefront selling someone else's inventory is the reseller.
+    const ownerTenantId = property.tenantId;
+    const resellerTenantId = distributed ? tenant.id : undefined;
 
-    if (!room) {
-      throw new NotFoundException('Room type not found');
-    }
-
-    // Find rate plan
-    const ratePlan = await this.prisma.ratePlan.findFirst({
-      where: { propertyId: dto.propertyId, code: dto.ratePlanCode },
-    });
-
-    if (!ratePlan) {
-      throw new NotFoundException('Rate plan not found');
-    }
-
-    // Get calendar rates and verify availability
-    const calendarRates = await this.prisma.calendarRate.findMany({
-      where: {
-        roomId: room.id,
-        ratePlanId: ratePlan.id,
-        date: { gte: dto.checkInDate, lt: dto.checkOutDate },
-        stopSell: false,
-      },
-    });
-
-    if (calendarRates.length === 0) {
-      throw new BadRequestException('No availability for selected dates');
-    }
-
-    const minAvailability = Math.min(
-      ...calendarRates.map((cr) => cr.availability),
-    );
-    if (minAvailability < 1) {
-      throw new BadRequestException('Insufficient availability');
-    }
-
-    const avgNetRate =
-      calendarRates.reduce((sum, cr) => sum + cr.netRate, 0) /
-      calendarRates.length;
-
-    // Get B2C markup rules
-    const b2cMarkupRules = await this.prisma.rateMarkup.findMany({
-      where: {
-        tenantId: tenant.id,
-        channel: 'b2c',
-      },
-      orderBy: { priority: 'desc' },
-    });
-
-    const b2cMarkupPercentage =
-      b2cMarkupRules[0]?.value || tenant.defaultB2CMarkup || 25;
-
-    // Calculate B2C sell rate
-    const b2cSellRate = Math.round(
-      avgNetRate * (1 + b2cMarkupPercentage / 100),
-    );
-
-    const subtotal = Math.round(b2cSellRate * numberOfNights);
-    const taxTotal = Math.round(subtotal * 0.1); // 10% tax (simplified)
-    const totalAmount = subtotal + taxTotal;
-
-    // Create booking
     const bookingCode = `${property.code}-B2C-${nanoid(8).toUpperCase()}`;
     const confirmationNo = `CONF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5).toUpperCase()}`;
 
@@ -305,8 +258,9 @@ export class B2CBookingService {
         systemConfirmationNo: confirmationNo,
         bookingCode,
         propertyId: dto.propertyId,
-        tenantId: tenant.id,
-        sourceTenantId: tenant.id,
+        tenantId: ownerTenantId,
+        sourceTenantId: ownerTenantId,
+        resellerTenantId,
         bookingType: 'b2c',
         guestEmail: dto.guestEmail,
         guestName: dto.guestName,
@@ -319,10 +273,10 @@ export class B2CBookingService {
         adults: dto.adults,
         children: dto.children || 0,
         rateType: 'domestic',
-        rateAmount: Math.round(avgNetRate),
+        rateAmount: netRate,
         totalAmount: totalAmount,
         currency: 'USD',
-        netRate: Math.round(avgNetRate),
+        netRate,
         numberOfNights,
         numberOfGuests: dto.adults + (dto.children || 0),
         subtotal,
@@ -333,9 +287,12 @@ export class B2CBookingService {
         // Create rate breakdown for audit
         rateBreakdown: {
           create: {
-            sourceTenantId: tenant.id,
-            netRate: Math.round(avgNetRate),
-            b2cMarkupApplied: Math.round(b2cSellRate - avgNetRate),
+            sourceTenantId: ownerTenantId,
+            resellerTenantId,
+            commissionPct: distributed?.commissionPct,
+            inventoryVisibilityId: distributed?.inventoryVisibilityId,
+            netRate,
+            b2cMarkupApplied: Math.round(b2cSellRate - offer.avgNetRate),
             taxTotal,
             feesTotal: 0,
             surchargesTotal: 0,
@@ -489,6 +446,7 @@ export class B2CBookingService {
   ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
+      include: { rateBreakdown: true },
     });
 
     if (
@@ -499,26 +457,52 @@ export class B2CBookingService {
       throw new NotFoundException('Booking not found');
     }
 
-    // Create payment record
     const subtotalAmount = booking.subtotal || booking.totalAmount;
-    await this.prisma.payment.create({
-      data: {
-        bookingId,
-        status: 'succeeded',
-        method: 'stripe',
-        stripePaymentIntentId,
-        amount: subtotalAmount,
-        currency: 'USD',
-        platformCommission: Math.round(subtotalAmount * 0.05), // 5% platform fee
-        tenantCredit: Math.round(subtotalAmount * 0.95),
-      },
-    });
+    const breakdown = booking.rateBreakdown;
+    const sellerTenantId = booking.resellerTenantId;
+    const ownerTenantId = booking.sourceTenantId;
+    const netRate = booking.netRate;
 
-    // Update booking status
-    const updatedBooking = await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: { status: 'confirmed' },
+    // Payment, confirmation and (for another supplier's inventory) settlements commit together.
+    const settled = await this.prisma.$transaction(async (tx) => {
+      // Claiming the status first means a booking can only be paid once.
+      const claimed = await tx.booking.updateMany({
+        where: { id: bookingId, status: 'pending_payment' },
+        data: { status: 'confirmed', confirmedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException('Booking is not awaiting payment');
+      }
+
+      await tx.payment.create({
+        data: {
+          bookingId,
+          status: 'succeeded',
+          method: 'stripe',
+          stripePaymentIntentId,
+          amount: subtotalAmount,
+          currency: 'USD',
+          platformCommission: Math.round(subtotalAmount * 0.05), // 5% platform fee
+          tenantCredit: Math.round(subtotalAmount * 0.95),
+        },
+      });
+
+      if (!sellerTenantId || !ownerTenantId || sellerTenantId === ownerTenantId || netRate == null) return null;
+      return this.settlements.createInTx(tx, {
+        bookingId,
+        sellerTenantId,
+        ownerTenantId,
+        ownerNetAmount: netRate * booking.numberOfNights,
+        commissionPct: breakdown?.commissionPct ?? 0,
+        inventoryVisibilityId: breakdown?.inventoryVisibilityId,
+        guestPaid: booking.totalAmount,
+        taxAmount: booking.totalAmount - subtotalAmount,
+        currency: booking.currency,
+      });
     });
+    if (settled) await this.settlements.logCreated(settled);
+
+    const updatedBooking = await this.prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
 
     return {
       id: updatedBooking.id,
@@ -576,6 +560,7 @@ export class B2CBookingService {
       where: { id: bookingId },
       data: { status: 'cancelled', cancelledAt: new Date() },
     });
+    await this.settlements.cancelForBooking(bookingId);
 
     return {
       id: cancelledBooking.id,

@@ -474,8 +474,8 @@ model Property {
   propertyRates  PropertyRate[]          @relation("property_rates")
 
   /// Phase 1: Inventory ledger
-  inventoryLedger     InventoryLedger[]
-  currentAvailability CurrentAvailability[]
+  inventoryLedger       InventoryLedger[]
+  currentAvailability   CurrentAvailability[]
   inventoryVisibilities InventoryVisibility[]
 
   @@unique([tenantId, code])
@@ -800,7 +800,7 @@ model SupplierSettlement {
   amount    Float
   currency  String @default("USD")
 
-  status           String    @default("pending") /// pending, paid, overdue
+  status           String    @default("pending") /// pending, paid, overdue, cancelled
   dueDate          DateTime?
   paidDate         DateTime?
   paymentReference String?
@@ -1608,6 +1608,10 @@ model RateBreakdown {
   b2bMarginApplied Float? /// if B2B, markup applied by source
   marketplaceRate  Float? /// netRate + b2bMarginApplied
   resellerMarkup   Float? /// reseller's own markup
+
+  /// Set when the booking sells another supplier's published inventory
+  commissionPct         Float? /// commission on the owner's net amount, owed by the seller
+  inventoryVisibilityId String?
 
   b2cMarkupApplied Float? /// if B2C, direct markup applied
 
