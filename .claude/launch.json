@@ -11,7 +11,7 @@
       "name": "Web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-F", "web", "dev"],
-      "port": 3000
+      "port": 3200
     },
     {
       "name": "b2c",
