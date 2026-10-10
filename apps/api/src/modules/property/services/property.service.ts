@@ -65,6 +65,8 @@ export class PropertyService {
     const property = await this.prisma.property.findFirst({
       where: { id: propertyId, tenantId },
       include: {
+        country: true,
+        state: true,
         rooms: true,
         ratePlans: true,
         policies: true,
@@ -97,6 +99,11 @@ export class PropertyService {
       where: { id: propertyId },
       data: {
         name: dto.name,
+        countryId: dto.countryId,
+        city: dto.city,
+        address: dto.address,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
         description: dto.description,
         usp: dto.usp,
         area: dto.area,

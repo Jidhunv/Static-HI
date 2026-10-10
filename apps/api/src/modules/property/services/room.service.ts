@@ -44,6 +44,18 @@ export class RoomService {
     return room;
   }
 
+  async deleteRoom(tenantId: string, propertyId: string, roomId: string) {
+    const room = await this.prisma.room.findFirst({
+      where: { id: roomId, propertyId, property: { tenantId } },
+    });
+
+    if (!room) {
+      throw new NotFoundException('Room not found');
+    }
+
+    return this.prisma.room.delete({ where: { id: roomId } });
+  }
+
   async createRoom(
     tenantId: string,
     propertyId: string,

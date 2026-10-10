@@ -116,6 +116,26 @@ export class UpdatePropertyDto {
 
   @IsOptional()
   @IsString()
+  countryId?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @IsOptional()

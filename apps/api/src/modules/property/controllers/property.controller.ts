@@ -95,6 +95,15 @@ export class PropertyController {
     return this.roomService.createRoom(tenantId, propertyId, dto);
   }
 
+  @Delete(':propertyId/rooms/:roomId')
+  async deleteRoom(
+    @TenantId() tenantId: string,
+    @Param('propertyId') propertyId: string,
+    @Param('roomId') roomId: string,
+  ) {
+    return this.roomService.deleteRoom(tenantId, propertyId, roomId);
+  }
+
   // =========== RATE PLANS ===========
 
   @Get(':propertyId/rate-plans')
